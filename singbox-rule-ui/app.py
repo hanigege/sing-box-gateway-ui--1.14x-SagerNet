@@ -557,7 +557,7 @@ def restart_sing_box():
 
 def restart_tproxy():
     restart = run_command(["systemctl", "restart", TPROXY_SERVICE], timeout=20)
-    status = systemctl_is_active(TPROXY_SERVICE)
+    status = unit_status(TPROXY_SERVICE)
     code = 0 if restart["code"] == 0 and status == "active" else 1
     return {"code": code, "stdout": restart["stdout"], "stderr": restart["stderr"], "service": status}
 
