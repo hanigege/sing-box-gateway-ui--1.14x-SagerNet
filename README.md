@@ -24,6 +24,7 @@
 - TProxy 自动检测默认网卡、本机网段和 IPv6 前缀
 - 节点服务器 IP 自动加入 TProxy bypass，避免代理链路被透明代理套住
 - FakeIP 网段不绕过 TProxy，继续交给 `sing-box` 分流
+- LAN 侧 TCP/UDP 53 会被重定向到 sing-box DNS，降低 IPv4/IPv6 明文 DNS 泄漏
 - 分流规则定时更新，下载失败保留旧文件
 - 维护页展示规则更新、TProxy、服务状态和节点服务器解析结果
 - 内置 9090 Clash API 和 zashboard 静态面板
