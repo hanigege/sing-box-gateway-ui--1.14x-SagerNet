@@ -147,7 +147,17 @@ install_sing_box() {
       exit 1
     fi
     if [ -r "$sums" ]; then
-      (cd "$(dirname "$sums")" && sha256sum -c --ignore-missing SHA256SUMS >/dev/null)
+      archive_name="$(basename "$archive")"
+      expected="$(awk -v name="$archive_name" '$2 == name { print $1 }' "$sums")"
+      if [ -z "$expected" ]; then
+        echo "No checksum entry for bundled archive: $archive_name" >&2
+        exit 1
+      fi
+      actual="$(sha256sum "$archive" | awk '{ print $1 }')"
+      if [ "$actual" != "$expected" ]; then
+        echo "Checksum mismatch for bundled archive: $archive_name" >&2
+        exit 1
+      fi
     fi
     version="$SING_BOX_BUNDLED_VERSION"
     tmp="$(mktemp -d)"
