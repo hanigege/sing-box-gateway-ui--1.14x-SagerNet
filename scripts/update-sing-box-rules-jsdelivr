@@ -14,7 +14,15 @@ if ! flock -n 9; then
 fi
 
 TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
+RESOLV_BACKUP="$TMP_DIR/resolv.conf.before-rule-update"
+RESOLV_CHANGED=0
+cleanup() {
+  if [ "$RESOLV_CHANGED" = "1" ] && [ -f "$RESOLV_BACKUP" ]; then
+    cp -a "$RESOLV_BACKUP" /etc/resolv.conf || true
+  fi
+  rm -rf "$TMP_DIR"
+}
+trap cleanup EXIT
 
 MIRRORS=(
   "https://scg.jgaga.tk/https://raw.githubusercontent.com"
@@ -63,6 +71,8 @@ ensure_host_resolver() {
     return
   fi
   echo "host resolver points to localhost/gateway or is empty; using public DNS for rule update"
+  cp -a /etc/resolv.conf "$RESOLV_BACKUP" 2>/dev/null || true
+  RESOLV_CHANGED=1
   rm -f /etc/resolv.conf
   {
     echo "nameserver 223.5.5.5"
