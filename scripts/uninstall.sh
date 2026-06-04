@@ -51,12 +51,25 @@ run_systemctl() {
 
 cleanup_tproxy_runtime() {
   if command -v nft >/dev/null 2>&1; then
+    nft delete table inet singbox_tproxy >/dev/null 2>&1 || true
     nft delete table inet singbox >/dev/null 2>&1 || true
   fi
   ip rule del fwmark 1 table 100 >/dev/null 2>&1 || true
   ip -6 rule del fwmark 1 table 100 >/dev/null 2>&1 || true
   ip route flush table 100 >/dev/null 2>&1 || true
   ip -6 route flush table 100 >/dev/null 2>&1 || true
+}
+
+restore_host_resolver() {
+  backup="$CONFIG_DIR/manager/resolv.conf.before-sing-box"
+  if [ ! -e "$backup" ]; then
+    return
+  fi
+  if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files systemd-resolved.service >/dev/null 2>&1; then
+    systemctl enable --now systemd-resolved.service >/dev/null 2>&1 || true
+  fi
+  rm -f /etc/resolv.conf
+  cp -a "$backup" /etc/resolv.conf || true
 }
 
 parse_args() {
@@ -83,6 +96,7 @@ main() {
   run_systemctl disable --now sing-box-tproxy.service
 
   cleanup_tproxy_runtime
+  restore_host_resolver
 
   echo "Removing service files and helper scripts..."
   rm -f \

@@ -98,6 +98,56 @@ install_tproxy_setup() {
   python3 "$PROJECT_DIR/scripts/sync_tproxy_setup.py"
 }
 
+collect_host_nameservers() {
+  {
+    if [ -r /run/systemd/resolve/resolv.conf ]; then
+      awk '/^nameserver[[:space:]]+/ {print $2}' /run/systemd/resolve/resolv.conf
+    fi
+    if [ -r /etc/resolv.conf ]; then
+      awk '/^nameserver[[:space:]]+/ {print $2}' /etc/resolv.conf
+    fi
+    if command -v resolvectl >/dev/null 2>&1; then
+      resolvectl dns 2>/dev/null | tr ' ' '\n'
+    fi
+  } | awk '
+    /^[0-9a-fA-F:.]+$/ &&
+    $0 !~ /^127\./ &&
+    $0 != "::1" &&
+    $0 != "0.0.0.0" &&
+    $0 != "::" &&
+    !seen[$0]++ { print "nameserver " $0 }
+  '
+}
+
+disable_systemd_resolved_stub() {
+  if ! systemctl list-unit-files systemd-resolved.service >/dev/null 2>&1; then
+    return
+  fi
+  mkdir -p "$MANAGER_DIR"
+  if [ -e /etc/resolv.conf ] && [ ! -e "$MANAGER_DIR/resolv.conf.before-sing-box" ]; then
+    cp -a /etc/resolv.conf "$MANAGER_DIR/resolv.conf.before-sing-box" || true
+  fi
+  nameservers="$(collect_host_nameservers)"
+  systemctl disable --now systemd-resolved.service >/dev/null 2>&1 || true
+  if [ -L /etc/resolv.conf ] || ! awk '
+    /^nameserver[[:space:]]+/ &&
+    $2 !~ /^127\./ &&
+    $2 != "::1" { found=1 }
+    END { exit found ? 0 : 1 }
+  ' /etc/resolv.conf 2>/dev/null; then
+    rm -f /etc/resolv.conf
+    {
+      if [ -n "$nameservers" ]; then
+        printf "%s\n" "$nameservers"
+      else
+        echo "nameserver 223.5.5.5"
+        echo "nameserver 1.1.1.1"
+      fi
+      echo "options timeout:2 attempts:2"
+    } > /etc/resolv.conf
+  fi
+}
+
 enable_services() {
   systemctl daemon-reload
   systemctl enable --now sing-box-tproxy.service
@@ -134,6 +184,7 @@ main() {
   bootstrap_config
   install_initial_rules
   install_tproxy_setup
+  disable_systemd_resolved_stub
   /usr/local/bin/sing-box check -c /etc/sing-box/config.json
   enable_services
   refresh_tproxy_after_start
