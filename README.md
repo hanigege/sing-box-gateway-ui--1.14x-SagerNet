@@ -38,12 +38,10 @@
 
 需要 root 权限。
 
-## 快速安装
+## 一键安装
 
 ```bash
-git clone https://github.com/hanigege/sing-box-gateway-ui.git
-cd sing-box-gateway-ui
-sudo bash scripts/install.sh
+curl -fsSL https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui/main/scripts/quick-install.sh | sudo bash
 ```
 
 安装器会交互式询问：
@@ -55,6 +53,16 @@ sudo bash scripts/install.sh
 - 节点 tag、server、端口和认证参数
 
 安装过程中会先下载必需分流规则、生成 TProxy 规则脚本，并执行 `sing-box check`。检查不通过时不会启用服务。
+
+## Git 安装
+
+适合想修改脚本或参与开发的用户：
+
+```bash
+git clone https://github.com/hanigege/sing-box-gateway-ui.git
+cd sing-box-gateway-ui
+sudo bash scripts/install.sh
+```
 
 ## 访问入口
 
@@ -102,4 +110,3 @@ sing-box-gateway-info
 - 私有域名
 
 本仓库只保存安装逻辑和通用模板，不包含任何可用代理节点或私人配置。
-
