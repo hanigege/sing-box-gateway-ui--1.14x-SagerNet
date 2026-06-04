@@ -440,8 +440,12 @@ def apply_cache_file_settings(config):
 
 def apply_portable_listeners(config):
     lan_ip = default_lan_ip()
-    for inbound in config.get("inbounds", []) or []:
+    ipv6_listen = preferred_ipv6_listener(lan_ip)
+    inbounds = config.get("inbounds", []) or []
+    kept_inbounds = []
+    for inbound in inbounds:
         if not isinstance(inbound, dict):
+            kept_inbounds.append(inbound)
             continue
         listen = str(inbound.get("listen", ""))
         try:
@@ -452,6 +456,15 @@ def apply_portable_listeners(config):
             is_ipv4_listen = False
         if lan_ip and (inbound.get("tag") == "dns-in" or (inbound.get("type") == "direct" and listen_port == 53 and is_ipv4_listen)):
             inbound["listen"] = lan_ip
+        if inbound.get("tag") == "dns-in-v6":
+            if ipv6_listen:
+                inbound["listen"] = ipv6_listen
+            else:
+                remove_inbound_tag(config, "dns-in-v6")
+                continue
+        kept_inbounds.append(inbound)
+    if kept_inbounds != inbounds:
+        config["inbounds"] = kept_inbounds
     clash = config.setdefault("experimental", {}).setdefault("clash_api", {})
     controller = str(clash.get("external_controller", "")).strip()
     controller_host = controller.rsplit(":", 1)[0] if ":" in controller else controller
@@ -461,6 +474,64 @@ def apply_portable_listeners(config):
         is_ipv4_controller = False
     if lan_ip and (not controller or is_ipv4_controller):
         clash["external_controller"] = f"{lan_ip}:9090"
+
+
+def assigned_ipv6_addresses():
+    result = run_command(["ip", "-o", "-6", "addr", "show", "scope", "global"], timeout=8)
+    addresses = []
+    for line in result["stdout"].splitlines():
+        parts = line.split()
+        if "inet6" not in parts:
+            continue
+        value = parts[parts.index("inet6") + 1].split("/", 1)[0]
+        try:
+            addresses.append(ipaddress.IPv6Address(value))
+        except ValueError:
+            continue
+    return addresses
+
+
+def preferred_ipv6_listener(lan_ip):
+    addresses = assigned_ipv6_addresses()
+    if not addresses:
+        return ""
+    expected_candidates = []
+    try:
+        last_octet = int(ipaddress.IPv4Address(lan_ip).packed[-1])
+        suffix = str(last_octet)
+        expected_candidates = [
+            ipaddress.IPv6Address(f"fd88::{suffix}{suffix}"),
+            ipaddress.IPv6Address(f"fd88::{suffix * 4}") if len(suffix) == 1 else None,
+        ]
+    except Exception:
+        expected_candidates = []
+    for expected in expected_candidates:
+        if expected and expected in addresses:
+            return str(expected)
+
+    def score(address):
+        text = str(address)
+        if address.is_private and "ff:fe" not in text:
+            return 0
+        if address.is_private:
+            return 1
+        return 2
+
+    return str(sorted(addresses, key=score)[0])
+
+
+def remove_inbound_tag(config, tag):
+    for section in ("dns", "route"):
+        for rule in config.get(section, {}).get("rules", []) or []:
+            if not isinstance(rule, dict):
+                continue
+            inbound = rule.get("inbound")
+            if isinstance(inbound, list) and tag in inbound:
+                inbound[:] = [item for item in inbound if item != tag]
+                if len(inbound) == 1:
+                    rule["inbound"] = inbound[0]
+            elif inbound == tag:
+                rule.pop("inbound", None)
 
 
 def apply_fakeip_settings(config, groups):
