@@ -17,6 +17,9 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 MIRRORS=(
+  "https://scg.jgaga.tk/https://raw.githubusercontent.com"
+  "https://gh-proxy.com/https://raw.githubusercontent.com"
+  "https://gh.llkk.cc/https://raw.githubusercontent.com"
   "https://cdn.jsdelivr.net/gh"
   "https://fastly.jsdelivr.net/gh"
 )
@@ -42,11 +45,19 @@ fetch_one() {
   local current="$BASE_DIR/$subdir/${name}.srs"
   local url
   mkdir -p "$NEW_DIR" "$BASE_DIR/$subdir"
+  if [ "$required" = "0" ] && [ ! -s "$current" ]; then
+    echo "optional ${subdir}/${name}.srs unavailable; skipped safely"
+    return 0
+  fi
   for mirror in "${MIRRORS[@]}"; do
-    url="$mirror/${repo}@${branch}/${subdir}-${name}.srs"
-    curl_flags=(-fsSL --connect-timeout 10 --max-time 60)
+    if [[ "$mirror" == *raw.githubusercontent.com ]]; then
+      url="$mirror/${repo}/${branch}/${subdir}-${name}.srs"
+    else
+      url="$mirror/${repo}@${branch}/${subdir}-${name}.srs"
+    fi
+    curl_flags=(-4 -fsSL --connect-timeout 4 --max-time 12)
     if [ "$required" = "0" ]; then
-      curl_flags=(-fsSL --silent --show-error --connect-timeout 10 --max-time 60)
+      curl_flags=(-4 -fsSL --silent --show-error --connect-timeout 3 --max-time 8)
     fi
     if curl "${curl_flags[@]}" "$url" -o "$tmp" 2>"$TMP_DIR/curl-${subdir}-${name}.log"; then
       if [ -s "$tmp" ] && [ "$(wc -c < "$tmp")" -gt 16 ]; then
