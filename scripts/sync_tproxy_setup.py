@@ -9,7 +9,7 @@ APP_DIR = Path("/opt/singbox-rule-ui")
 
 def main():
     sys.path.insert(0, str(APP_DIR))
-    from app import TPROXY_SCRIPT, TPROXY_SYSCTL, load_groups, load_nodes, render_tproxy_script, render_tproxy_sysctl, run_command, tproxy_bypass_sets
+    from app import TPROXY_SCRIPT, TPROXY_SYSCTL, load_groups, load_nodes, render_radvd_conf, render_tproxy_script, render_tproxy_sysctl, run_command, sync_radvd, tproxy_bypass_sets
 
     nodes = load_nodes()
     groups = load_groups()
@@ -23,6 +23,7 @@ def main():
         script_path.write_text(script, encoding="utf-8")
         script_path.chmod(0o755)
         sysctl_path.write_text(render_tproxy_sysctl(sets["interface"]), encoding="utf-8")
+        radvd_conf = render_radvd_conf(sets["interface"])
         check = run_command(["bash", "-n", str(script_path)], timeout=8)
         if check["code"] != 0:
             sys.stderr.write(check["stderr"] or check["stdout"] or "TProxy script syntax check failed\n")
@@ -34,6 +35,12 @@ def main():
         TPROXY_SYSCTL.write_text(sysctl_path.read_text(encoding="utf-8"), encoding="utf-8")
 
     print(f"TProxy setup installed for interface {sets['interface']}.")
+    if radvd_conf:
+        radvd = sync_radvd(sets["interface"])
+        if radvd.get("code") != 0:
+            sys.stderr.write(radvd.get("stderr") or radvd.get("stdout") or "radvd sync failed\n")
+            return radvd.get("code") or 1
+        print("IPv6 router advertisement enabled for LAN clients.")
     if sets.get("nodeServerIpNetworks"):
         print("Node server bypass:", ", ".join(sets["nodeServerIpNetworks"]))
     return 0

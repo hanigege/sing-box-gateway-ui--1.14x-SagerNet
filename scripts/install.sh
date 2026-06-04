@@ -20,7 +20,7 @@ need_root() {
 install_packages() {
   if command -v apt-get >/dev/null 2>&1; then
     apt-get update
-    apt-get install -y curl ca-certificates tar gzip unzip python3 nftables iproute2 rsync util-linux
+    apt-get install -y curl ca-certificates tar gzip unzip python3 nftables iproute2 rsync util-linux radvd
   else
     echo "Only apt-based systems are supported by this MVP installer." >&2
     exit 1
