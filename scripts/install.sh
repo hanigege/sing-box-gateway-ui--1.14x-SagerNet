@@ -9,6 +9,7 @@ MANAGER_DIR="$CONFIG_DIR/manager"
 RULE_DIR="$CONFIG_DIR/custom-rules"
 CLASH_UI_DIR="$CONFIG_DIR/ui"
 PROXY_PREFIX="${SING_BOX_GATEWAY_PROXY_PREFIX:-https://scg.jgaga.tk/}"
+PROXY_PREFIXES="${SING_BOX_GATEWAY_PROXY_PREFIXES:-${PROXY_PREFIX},https://gh-proxy.com/,https://gh.llkk.cc/}"
 
 need_root() {
   if [ "$(id -u)" -ne 0 ]; then
@@ -35,11 +36,18 @@ detect_arch() {
   esac
 }
 
-proxy_url() {
-  case "$1" in
-    https://*) printf "%s%s\n" "$PROXY_PREFIX" "$1" ;;
-    *) printf "%s\n" "$1" ;;
+download_urls() {
+  local url="$1" prefix
+  case "$url" in
+    https://*) ;;
+    *) printf "%s\n" "$url"; return ;;
   esac
+  IFS=',' read -ra prefixes <<< "$PROXY_PREFIXES"
+  for prefix in "${prefixes[@]}"; do
+    [ -n "$prefix" ] || continue
+    printf "%s%s\n" "$prefix" "$url"
+  done
+  printf "%s\n" "$url"
 }
 
 curl_first() {
@@ -59,6 +67,7 @@ curl_text_first() {
   local url tmp
   tmp="$(mktemp)"
   for url in "$@"; do
+    echo "尝试下载: $url" >&2
     if curl -fsSL --connect-timeout 10 --max-time 60 "$url" -o "$tmp"; then
       cat "$tmp"
       rm -f "$tmp"
@@ -77,14 +86,16 @@ install_sing_box() {
   arch="$(detect_arch)"
   if [ "$SING_BOX_VERSION" = "latest" ]; then
     api_url="https://api.github.com/repos/SagerNet/sing-box/releases/latest"
-    version="$(curl_text_first "$(proxy_url "$api_url")" "$api_url" | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))')"
+    api_urls=($(download_urls "$api_url"))
+    version="$(curl_text_first "${api_urls[@]}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))')"
   else
     version="$SING_BOX_VERSION"
   fi
   url="https://github.com/SagerNet/sing-box/releases/download/v${version}/sing-box-${version}-linux-${arch}.tar.gz"
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
-  curl_first "$tmp/sing-box.tar.gz" "$(proxy_url "$url")" "$url"
+  urls=($(download_urls "$url"))
+  curl_first "$tmp/sing-box.tar.gz" "${urls[@]}"
   tar -xzf "$tmp/sing-box.tar.gz" -C "$tmp"
   install -m 0755 "$tmp"/sing-box-*/sing-box /usr/local/bin/sing-box
 }
@@ -107,9 +118,11 @@ install_clash_ui() {
   mkdir -p "$CLASH_UI_DIR"
   tmp="$(mktemp -d)"
   api_url="https://api.github.com/repos/Zephyruso/zashboard/releases/latest"
-  if asset_url="$(curl_text_first "$(proxy_url "$api_url")" "$api_url" \
+  api_urls=($(download_urls "$api_url"))
+  if asset_url="$(curl_text_first "${api_urls[@]}" \
       | python3 -c 'import json,sys; assets=json.load(sys.stdin)["assets"]; print(next(item["browser_download_url"] for item in assets if item["name"] == "dist.zip"))')" \
-    && curl_first "$tmp/zashboard.zip" "$(proxy_url "$asset_url")" "$asset_url"; then
+    && asset_urls=($(download_urls "$asset_url")) \
+    && curl_first "$tmp/zashboard.zip" "${asset_urls[@]}"; then
     unzip -oq "$tmp/zashboard.zip" -d "$tmp/zashboard"
     if [ -d "$tmp/zashboard/dist" ]; then
       rsync -a --delete "$tmp/zashboard/dist/" "$CLASH_UI_DIR/"
@@ -279,10 +292,10 @@ main() {
   need_root
   ensure_bootstrap_resolver
   install_packages
-  install_sing_box
   install_files
-  install_clash_ui
   bootstrap_config
+  install_sing_box
+  install_clash_ui
   install_initial_rules
   install_tproxy_setup
   ensure_dns_port_available

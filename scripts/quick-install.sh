@@ -5,6 +5,7 @@ REPO="${SING_BOX_GATEWAY_REPO:-hanigege/sing-box-gateway-ui}"
 REF="${SING_BOX_GATEWAY_REF:-main}"
 ACTION="${1:-install}"
 PROXY_PREFIX="${SING_BOX_GATEWAY_PROXY_PREFIX:-https://scg.jgaga.tk/}"
+PROXY_PREFIXES="${SING_BOX_GATEWAY_PROXY_PREFIXES:-${PROXY_PREFIX},https://gh-proxy.com/,https://gh.llkk.cc/}"
 
 if ! command -v curl >/dev/null 2>&1; then
   echo "缺少 curl，请先安装 curl。" >&2
@@ -39,9 +40,20 @@ download_first() {
   return 1
 }
 
+download_urls() {
+  local url="$1" prefix
+  IFS=',' read -ra prefixes <<< "$PROXY_PREFIXES"
+  for prefix in "${prefixes[@]}"; do
+    [ -n "$prefix" ] || continue
+    printf "%s%s\n" "$prefix" "$url"
+  done
+  printf "%s\n" "$url"
+}
+
 echo "正在下载 sing-box-gateway-ui ${REPO}@${REF}..."
 archive_url="https://github.com/${REPO}/archive/refs/heads/${REF}.tar.gz"
-download_first "$archive" "${PROXY_PREFIX}${archive_url}" "$archive_url"
+archive_urls=($(download_urls "$archive_url"))
+download_first "$archive" "${archive_urls[@]}"
 mkdir -p "$src"
 tar -xzf "$archive" -C "$src" --strip-components=1
 
