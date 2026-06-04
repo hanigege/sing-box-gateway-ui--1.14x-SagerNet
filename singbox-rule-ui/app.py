@@ -29,6 +29,7 @@ BASE_CONFIG_PATH = MANAGER_DIR / "base.json"
 NODES_PATH = MANAGER_DIR / "nodes.json"
 GROUPS_PATH = MANAGER_DIR / "groups.json"
 BACKUP_DIR = MANAGER_DIR / "backups"
+RULE_UPDATE_LAST_PATH = MANAGER_DIR / "rule-update-last.json"
 RULE_UPDATE_SCRIPT = Path(os.environ.get("RULE_UI_RULE_UPDATE_SCRIPT", "/usr/local/sbin/update-sing-box-rules-jsdelivr"))
 RULE_UPDATE_TIMER = os.environ.get("RULE_UI_RULE_UPDATE_TIMER", "update-sing-box-rules-jsdelivr.timer")
 RULE_UPDATE_SERVICE = os.environ.get("RULE_UI_RULE_UPDATE_SERVICE", "update-sing-box-rules-jsdelivr.service")
@@ -659,6 +660,8 @@ def rule_update_summary(text):
             summary["skipped"].append(message)
         elif message.startswith("ERROR:"):
             summary["errors"].append(message)
+        elif "timed out" in message:
+            summary["errors"].append(message)
         elif "sing-box rule sets updated" in message:
             summary["final"] = message
     for key in ("updated", "kept", "skipped", "errors"):
@@ -1087,6 +1090,12 @@ def maintenance_status():
     timer = systemctl_show(RULE_UPDATE_TIMER, ["ActiveState", "SubState", "LastTriggerUSec", "NextElapseUSecRealtime", "Result"])
     service = systemctl_show(RULE_UPDATE_SERVICE, ["ActiveState", "SubState", "Result"])
     rule_logs = recent_unit_logs(RULE_UPDATE_SERVICE, 100)
+    last_manual = load_json(RULE_UPDATE_LAST_PATH, {})
+    journal_summary = rule_update_summary(rule_logs)
+    summary = last_manual.get("summary") or journal_summary
+    log = last_manual.get("log") or rule_logs
+    result_text = last_manual.get("result") or timer.get("Result", "") or service.get("Result", "")
+    last_text = last_manual.get("finishedAt") or timer.get("LastTriggerUSec", "")
     iface = first_default_interface()
     current_v6 = current_ipv6_prefixes(iface)
     script_v6 = script_ipv6_prefixes(TPROXY_SCRIPT)
@@ -1097,11 +1106,11 @@ def maintenance_status():
             "timer": RULE_UPDATE_TIMER,
             "timerActive": unit_status(RULE_UPDATE_TIMER),
             "next": timer.get("NextElapseUSecRealtime", ""),
-            "last": timer.get("LastTriggerUSec", ""),
-            "result": timer.get("Result", "") or service.get("Result", ""),
+            "last": last_text,
+            "result": result_text,
             "serviceState": service.get("ActiveState", ""),
-            "log": rule_logs,
-            "summary": rule_update_summary(rule_logs),
+            "log": log,
+            "summary": summary,
         },
         "tproxy": {
             "service": TPROXY_SERVICE,
@@ -1123,9 +1132,41 @@ def maintenance_status():
 def update_rule_sets():
     if not RULE_UPDATE_SCRIPT.exists():
         return {"code": 1, "stdout": "", "stderr": f"Missing script: {RULE_UPDATE_SCRIPT}"}
-    result = run_command([str(RULE_UPDATE_SCRIPT)], timeout=180)
+    started = time.strftime("%Y-%m-%d %H:%M:%S")
+    write_json(
+        RULE_UPDATE_LAST_PATH,
+        {
+            "startedAt": started,
+            "finishedAt": "",
+            "result": "running",
+            "code": None,
+            "log": "Manual rule update is running.",
+            "summary": {"updated": [], "kept": [], "skipped": [], "errors": [], "final": "Manual rule update is running.", "requiredOk": False},
+        },
+    )
+    try:
+        result = run_command([str(RULE_UPDATE_SCRIPT)], timeout=90)
+    except subprocess.TimeoutExpired as exc:
+        stdout = (exc.stdout or "").strip() if isinstance(exc.stdout, str) else ""
+        stderr = (exc.stderr or "").strip() if isinstance(exc.stderr, str) else ""
+        result = {
+            "code": 124,
+            "stdout": stdout,
+            "stderr": (stderr + "\nManual rule update timed out. Existing rule files were kept.").strip(),
+        }
     text = "\n".join(item for item in (result.get("stdout"), result.get("stderr")) if item)
     result["summary"] = rule_update_summary(text)
+    write_json(
+        RULE_UPDATE_LAST_PATH,
+        {
+            "startedAt": started,
+            "finishedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "result": "success" if result["code"] == 0 else "failed",
+            "code": result["code"],
+            "log": text,
+            "summary": result["summary"],
+        },
+    )
     return result
 
 

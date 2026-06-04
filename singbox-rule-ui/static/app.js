@@ -69,6 +69,7 @@ const translations = {
     updateRules: "Update rule sets",
     syncTproxy: "Sync TProxy",
     updatingRules: "Updating rule sets",
+    ruleUpdateRunning: "Updating now. Please wait.",
     syncingTproxy: "Syncing TProxy",
     rulesUpdated: "Rule sets updated safely",
     tproxySynced: "TProxy synced safely",
@@ -231,6 +232,7 @@ const translations = {
     updateRules: "立即更新分流规则",
     syncTproxy: "同步 TProxy",
     updatingRules: "正在更新分流规则",
+    ruleUpdateRunning: "正在更新，请稍候。",
     syncingTproxy: "正在同步 TProxy",
     rulesUpdated: "分流规则已安全更新",
     tproxySynced: "TProxy 已安全同步",
@@ -682,8 +684,9 @@ function renderMaintenance() {
   const hasDetails = Boolean((summary.updated || []).length || (summary.kept || []).length || (summary.skipped || []).length || (summary.errors || []).length || summary.final);
   const keptCount = (summary.kept || []).length;
   const errorCount = (summary.errors || []).length;
+  const finalTone = errorCount ? "bad" : summary.requiredOk ? "good" : summary.final ? "soft" : "";
   rows.appendChild(renderMaintenanceCard(t("ruleUpdateDetails"), hasDetails ? [
-    [t("finalResult"), summary.final ? t("updateHealthOk") : t("unknown"), summary.final ? "good" : ""],
+    [t("finalResult"), summary.final || t("unknown"), finalTone],
     [t("updatedCount"), String((summary.updated || []).length), "good"],
     [t("optionalCount"), keptCount ? `${keptCount} · ${ruleNames(summary.kept)}` : "0", keptCount ? "soft" : "good"],
     [t("keptRules"), keptCount ? t("optionalCacheOk") : "0", keptCount ? "soft" : "good"],
@@ -718,6 +721,10 @@ async function refreshMaintenance() {
 async function updateRuleSets() {
   setBusy(true);
   setStatus(t("updatingRules"));
+  maintenance.ruleUpdate = maintenance.ruleUpdate || {};
+  maintenance.ruleUpdate.result = t("updatingRules");
+  maintenance.ruleUpdate.summary = { updated: [], kept: [], skipped: [], errors: [], final: t("ruleUpdateRunning") };
+  render();
   try {
     const result = await api("/api/rules/update", { method: "POST", body: "{}" });
     maintenance = result.maintenance || maintenance;
