@@ -56,7 +56,7 @@ sing-box-gateway-info
 入口：
 
 ```text
-http://<你的旁路网关IP>:8088/
+http://<你的旁路网关IP>:9091/
 http://<你的旁路网关IP>:9090/ui/
 ```
 

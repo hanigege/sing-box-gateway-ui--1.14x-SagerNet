@@ -8,7 +8,7 @@ Type=simple
 User=root
 WorkingDirectory=/opt/singbox-rule-ui
 Environment=RULE_UI_HOST=0.0.0.0
-Environment=RULE_UI_PORT=8088
+Environment=RULE_UI_PORT=9091
 ExecStart=/usr/bin/python3 /opt/singbox-rule-ui/app.py
 Restart=on-failure
 RestartSec=3

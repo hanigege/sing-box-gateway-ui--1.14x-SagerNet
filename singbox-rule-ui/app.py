@@ -1455,7 +1455,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     token = get_token()
     host = os.environ.get("RULE_UI_HOST", "0.0.0.0")
-    port = int(os.environ.get("RULE_UI_PORT", "8088"))
+    port = int(os.environ.get("RULE_UI_PORT", "9091"))
     print(f"Sing-box Rule UI listening on http://{host}:{port}")
     print(f"Token file: {TOKEN_FILE}")
     print(f"Token: {token}")

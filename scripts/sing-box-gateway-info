@@ -23,9 +23,9 @@ token = token_path.read_text(encoding="utf-8").strip() if token_path.exists() el
 print("Sing-box Gateway")
 print("================")
 if lan_ip:
-    print(f"Rule UI:        http://{lan_ip}:8088/")
+    print(f"Rule UI:        http://{lan_ip}:9091/")
 else:
-    print("Rule UI:        http://<gateway-ip>:8088/")
+    print("Rule UI:        http://<gateway-ip>:9091/")
 print(f"Rule UI token:  {token or '<missing>'}")
 if controller:
     print(f"Clash UI:       http://{controller}/ui/")
