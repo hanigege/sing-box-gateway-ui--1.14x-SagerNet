@@ -6,7 +6,6 @@ from pathlib import Path
 
 
 CONFIG_PATH = Path("/etc/sing-box/config.json")
-RESOLV_PATH = Path("/etc/resolv.conf")
 
 
 def default_lan_ip():
@@ -120,15 +119,6 @@ def main():
     else:
         print(f"sing-box listeners already match {lan_ip}.")
 
-    RESOLV_PATH.unlink(missing_ok=True)
-    RESOLV_PATH.write_text(
-        # The gateway host should use real upstream DNS. LAN clients can still use
-        # the gateway DNS listener, but local host output is not TProxy-captured.
-        "nameserver 223.5.5.5\n"
-        "nameserver 1.1.1.1\n"
-        "options timeout:2 attempts:2\n",
-        encoding="utf-8",
-    )
     return 0
 
 

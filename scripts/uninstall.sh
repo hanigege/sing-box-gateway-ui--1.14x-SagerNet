@@ -59,25 +59,6 @@ cleanup_tproxy_runtime() {
   ip -6 route flush table 100 >/dev/null 2>&1 || true
 }
 
-restore_resolver_if_purging() {
-  if [ "$PURGE" != "1" ]; then
-    return
-  fi
-  if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files systemd-resolved.service >/dev/null 2>&1; then
-    systemctl enable --now systemd-resolved.service >/dev/null 2>&1 || true
-    if [ -e /run/systemd/resolve/stub-resolv.conf ]; then
-      ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-      return
-    fi
-  fi
-  rm -f /etc/resolv.conf
-  {
-    echo "nameserver 223.5.5.5"
-    echo "nameserver 1.1.1.1"
-    echo "options timeout:2 attempts:2"
-  } > /etc/resolv.conf
-}
-
 parse_args() {
   for arg in "$@"; do
     case "$arg" in
@@ -118,7 +99,6 @@ main() {
     /etc/sysctl.d/99-sing-box-tproxy.conf
 
   rm -rf "$INSTALL_DIR"
-  restore_resolver_if_purging
 
   if [ "$PURGE" = "1" ]; then
     echo "Purging config and sing-box binary..."
