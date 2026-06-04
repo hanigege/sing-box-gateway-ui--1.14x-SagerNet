@@ -5,6 +5,11 @@ const translations = {
     ready: "Ready",
     restart: "Restart",
     restartHint: "Use only when you need to reload sing-box without changing rules.",
+    restartSingbox: "Restart sing-box",
+    restartTproxy: "Restart TProxy",
+    restartingTproxy: "Restarting TProxy",
+    tproxyRestarted: "TProxy restarted",
+    tproxyRestartFailed: "TProxy restart failed. sing-box is still running.",
     save: "Save",
     saveHint: "Save runs a staged sing-box check first. If it passes, rules are saved and sing-box restarts. If it fails, nothing is changed.",
     add: "Add",
@@ -160,6 +165,11 @@ const translations = {
     ready: "就绪",
     restart: "重启",
     restartHint: "仅在没有改规则、但需要重新加载 sing-box 时使用。",
+    restartSingbox: "重启 sing-box",
+    restartTproxy: "重启 TProxy",
+    restartingTproxy: "正在重启 TProxy",
+    tproxyRestarted: "TProxy 已重启",
+    tproxyRestartFailed: "TProxy 重启失败，sing-box 仍在运行。",
     save: "保存",
     saveHint: "保存会先用临时规则检测 sing-box 配置；通过才保存并重启，失败不会改正式规则。",
     add: "添加",
@@ -352,9 +362,9 @@ function setDirty(value) {
 }
 
 function updateButtons() {
-  $("restartBtn").disabled = busy;
-  $("restartBtnNodes").disabled = busy;
   $("refreshMaintenanceBtn").disabled = busy;
+  $("restartSingboxBtn").disabled = busy;
+  $("restartTproxyBtn").disabled = busy;
   $("restartUiBtn").disabled = busy;
   $("syncTproxyBtn").disabled = busy;
   $("updateRulesBtn").disabled = busy;
@@ -445,8 +455,9 @@ function applyLanguage() {
     tab.textContent = translations[lang].lists[tab.dataset.list].title;
   });
   $("saveBtn").title = t("saveHint");
-  $("restartBtn").title = t("restartHint");
-  $("restartBtnNodes").title = t("restartHint");
+  $("restartSingboxBtn").textContent = t("restartSingbox");
+  $("restartSingboxBtn").title = t("restartHint");
+  $("restartTproxyBtn").textContent = t("restartTproxy");
   $("refreshDelayBtn").textContent = t("refreshDelay");
   $("refreshMaintenanceBtn").textContent = t("refreshMaintenance");
   $("restartUiBtn").textContent = t("restartUi");
@@ -1301,6 +1312,26 @@ async function restart() {
   }
 }
 
+async function restartTproxy() {
+  setBusy(true);
+  setStatus(t("restartingTproxy"));
+  try {
+    const result = await api("/api/tproxy/restart", { method: "POST", body: "{}" });
+    maintenance = result.maintenance || maintenance;
+    if (result.state) state = result.state;
+    render();
+    if (result.restart?.code !== 0) {
+      setStatus(result.restart?.stderr || t("tproxyRestartFailed"), "bad");
+      return;
+    }
+    setStatus(t("tproxyRestarted"), "ok");
+  } catch (error) {
+    setStatus(`${t("tproxyRestartFailed")} ${error.message}`, "bad");
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function restartUi() {
   setBusy(true);
   setStatus(t("restartingUi"));
@@ -1331,10 +1362,10 @@ $("nodeCancel").addEventListener("click", clearNodeForm);
 $("searchInput").addEventListener("input", render);
 $("typeInput").addEventListener("change", updateValueHint);
 $("saveBtn").addEventListener("click", save);
-$("restartBtn").addEventListener("click", restart);
-$("restartBtnNodes").addEventListener("click", restart);
 $("refreshDelayBtn").addEventListener("click", refreshDelays);
 $("refreshMaintenanceBtn").addEventListener("click", refreshMaintenance);
+$("restartSingboxBtn").addEventListener("click", restart);
+$("restartTproxyBtn").addEventListener("click", restartTproxy);
 $("restartUiBtn").addEventListener("click", restartUi);
 $("syncTproxyBtn").addEventListener("click", syncTproxy);
 $("updateRulesBtn").addEventListener("click", updateRuleSets);

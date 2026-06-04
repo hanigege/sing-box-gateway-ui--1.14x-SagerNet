@@ -555,6 +555,13 @@ def restart_sing_box():
     return run_command(["systemctl", "restart", "sing-box.service"], timeout=20)
 
 
+def restart_tproxy():
+    restart = run_command(["systemctl", "restart", TPROXY_SERVICE], timeout=20)
+    status = systemctl_is_active(TPROXY_SERVICE)
+    code = 0 if restart["code"] == 0 and status == "active" else 1
+    return {"code": code, "stdout": restart["stdout"], "stderr": restart["stderr"], "service": status}
+
+
 def restart_rule_ui_later(delay=1.0):
     def target():
         time.sleep(delay)
@@ -1427,6 +1434,11 @@ class Handler(BaseHTTPRequestHandler):
                 result = sync_tproxy()
                 status = 200 if result["code"] == 0 else 500
                 self.send_json({"sync": result, "maintenance": maintenance_status(), "state": load_state()}, status)
+                return
+            if parsed.path == "/api/tproxy/restart":
+                result = restart_tproxy()
+                status = 200 if result["code"] == 0 else 500
+                self.send_json({"restart": result, "maintenance": maintenance_status(), "state": load_state()}, status)
                 return
             if parsed.path == "/api/ui/restart":
                 restart_rule_ui_later()
