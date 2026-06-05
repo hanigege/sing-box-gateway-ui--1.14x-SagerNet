@@ -37,7 +37,7 @@
 
 ## 透明网关 sysctl
 
-安装和 TProxy 同步会使用面向 sing-box 透明网关的 sysctl 参数。核心目标是开启 IPv4/IPv6 转发，关闭会影响 TProxy/策略路由的反向路径过滤，并在开启 IPv6 forwarding 后继续接受上游路由器的 RA 默认路由。
+下面是一套可参考的 sing-box 透明网关 sysctl 参数。核心目标是开启 IPv4/IPv6 转发，关闭会影响 TProxy/策略路由的反向路径过滤，并在开启 IPv6 forwarding 后继续接受上游路由器的 RA 默认路由。不同网络环境可以按需手动调整。
 
 默认参数如下：
 
@@ -65,7 +65,7 @@ net.ipv6.conf.default.disable_ipv6=0
 net.ipv6.conf.eth0.disable_ipv6=0
 ```
 
-其中 `eth0` 会按安装机的默认网卡自动生成。
+其中 `eth0` 需要替换成实际默认网卡名。
 
 ## 支持系统
 
