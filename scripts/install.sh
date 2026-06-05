@@ -362,6 +362,30 @@ refresh_tproxy_after_start() {
   systemctl restart sing-box-tproxy.service
 }
 
+set_self_resolver_after_start() {
+  lan_ip="$(python3 - <<'PY'
+import json
+from pathlib import Path
+
+config = json.loads(Path("/etc/sing-box/config.json").read_text(encoding="utf-8"))
+for inbound in config.get("inbounds", []):
+    if inbound.get("tag") == "dns-in" and inbound.get("listen"):
+        print(inbound["listen"])
+        break
+PY
+)"
+  if [ -z "$lan_ip" ] || [ "$lan_ip" = "0.0.0.0" ]; then
+    echo "WARN: unable to determine LAN DNS listen address; keeping current /etc/resolv.conf" >&2
+    return
+  fi
+  rm -f /etc/resolv.conf
+  {
+    echo "nameserver $lan_ip"
+    echo "options timeout:2 attempts:2"
+  } > /etc/resolv.conf
+  echo "Host resolver now points to this gateway: $lan_ip"
+}
+
 main() {
   case "${1:-install}" in
     install|"") ;;
@@ -391,6 +415,7 @@ main() {
   /usr/local/bin/sing-box check -c /etc/sing-box/config.json
   enable_services
   refresh_tproxy_after_start
+  set_self_resolver_after_start
   echo
   echo "Installed."
   sing-box-gateway-info
