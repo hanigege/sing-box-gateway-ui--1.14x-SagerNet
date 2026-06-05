@@ -35,6 +35,38 @@
 - 内置 9090 Clash API 和 zashboard 静态面板
 - `sing-box-gateway-info` 一键查看访问地址和密钥
 
+## 透明网关 sysctl
+
+安装和 TProxy 同步会使用面向 sing-box 透明网关的 sysctl 参数。核心目标是开启 IPv4/IPv6 转发，关闭会影响 TProxy/策略路由的反向路径过滤，并在开启 IPv6 forwarding 后继续接受上游路由器的 RA 默认路由。
+
+默认参数如下：
+
+```conf
+net.ipv4.ip_forward=1
+net.ipv4.conf.all.rp_filter=0
+net.ipv4.conf.default.rp_filter=0
+net.ipv4.conf.eth0.rp_filter=0
+net.ipv4.conf.lo.rp_filter=0
+
+net.ipv6.conf.all.forwarding=1
+net.ipv6.conf.default.forwarding=1
+net.ipv6.conf.eth0.forwarding=1
+net.ipv6.conf.all.accept_ra=2
+net.ipv6.conf.default.accept_ra=2
+net.ipv6.conf.eth0.accept_ra=2
+net.ipv6.conf.all.accept_ra_defrtr=1
+net.ipv6.conf.default.accept_ra_defrtr=1
+net.ipv6.conf.eth0.accept_ra_defrtr=1
+net.ipv6.conf.all.autoconf=1
+net.ipv6.conf.default.autoconf=1
+net.ipv6.conf.eth0.autoconf=1
+net.ipv6.conf.all.disable_ipv6=0
+net.ipv6.conf.default.disable_ipv6=0
+net.ipv6.conf.eth0.disable_ipv6=0
+```
+
+其中 `eth0` 会按安装机的默认网卡自动生成。
+
 ## 支持系统
 
 当前安装器面向 apt 系 Linux：
