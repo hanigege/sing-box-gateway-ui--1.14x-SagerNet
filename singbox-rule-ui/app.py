@@ -1229,11 +1229,22 @@ sysctl -w net.ipv4.ip_forward=1 >/dev/null
 sysctl -w net.ipv4.conf.all.rp_filter=0 >/dev/null
 sysctl -w net.ipv4.conf.default.rp_filter=0 >/dev/null
 sysctl -w "net.ipv4.conf.${{IFACE}}.rp_filter=0" >/dev/null 2>&1 || true
+sysctl -w net.ipv4.conf.lo.rp_filter=0 >/dev/null 2>&1 || true
 sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null
 sysctl -w net.ipv6.conf.default.forwarding=1 >/dev/null
 sysctl -w "net.ipv6.conf.${{IFACE}}.forwarding=1" >/dev/null 2>&1 || true
+sysctl -w net.ipv6.conf.all.accept_ra=2 >/dev/null 2>&1 || true
+sysctl -w net.ipv6.conf.default.accept_ra=2 >/dev/null 2>&1 || true
 sysctl -w "net.ipv6.conf.${{IFACE}}.accept_ra=2" >/dev/null 2>&1 || true
+sysctl -w net.ipv6.conf.all.accept_ra_defrtr=1 >/dev/null 2>&1 || true
+sysctl -w net.ipv6.conf.default.accept_ra_defrtr=1 >/dev/null 2>&1 || true
 sysctl -w "net.ipv6.conf.${{IFACE}}.accept_ra_defrtr=1" >/dev/null 2>&1 || true
+sysctl -w net.ipv6.conf.all.autoconf=1 >/dev/null 2>&1 || true
+sysctl -w net.ipv6.conf.default.autoconf=1 >/dev/null 2>&1 || true
+sysctl -w "net.ipv6.conf.${{IFACE}}.autoconf=1" >/dev/null 2>&1 || true
+sysctl -w net.ipv6.conf.all.disable_ipv6=0 >/dev/null 2>&1 || true
+sysctl -w net.ipv6.conf.default.disable_ipv6=0 >/dev/null 2>&1 || true
+sysctl -w "net.ipv6.conf.${{IFACE}}.disable_ipv6=0" >/dev/null 2>&1 || true
 
 ip rule add fwmark "${{TPROXY_MARK}}" table "${{TPROXY_TABLE}}" priority 100 2>/dev/null || true
 ip route replace local 0.0.0.0/0 dev lo table "${{TPROXY_TABLE}}"
@@ -1366,11 +1377,22 @@ def render_tproxy_sysctl(interface):
             "net.ipv4.conf.all.rp_filter=0",
             "net.ipv4.conf.default.rp_filter=0",
             f"net.ipv4.conf.{interface}.rp_filter=0",
+            "net.ipv4.conf.lo.rp_filter=0",
             "net.ipv6.conf.all.forwarding=1",
             "net.ipv6.conf.default.forwarding=1",
             f"net.ipv6.conf.{interface}.forwarding=1",
+            "net.ipv6.conf.all.accept_ra=2",
+            "net.ipv6.conf.default.accept_ra=2",
             f"net.ipv6.conf.{interface}.accept_ra=2",
+            "net.ipv6.conf.all.accept_ra_defrtr=1",
+            "net.ipv6.conf.default.accept_ra_defrtr=1",
             f"net.ipv6.conf.{interface}.accept_ra_defrtr=1",
+            "net.ipv6.conf.all.autoconf=1",
+            "net.ipv6.conf.default.autoconf=1",
+            f"net.ipv6.conf.{interface}.autoconf=1",
+            "net.ipv6.conf.all.disable_ipv6=0",
+            "net.ipv6.conf.default.disable_ipv6=0",
+            f"net.ipv6.conf.{interface}.disable_ipv6=0",
             "",
         ]
     )
@@ -1389,10 +1411,6 @@ def sync_tproxy(nodes=None, groups=None):
         check = run_command(["bash", "-n", str(script_path)], timeout=8)
         if check["code"] != 0:
             return {"code": 1, "stdout": check["stdout"], "stderr": check["stderr"], "sets": sets}
-        if TPROXY_SCRIPT.exists():
-            shutil.copy2(TPROXY_SCRIPT, TPROXY_SCRIPT.with_name(f"{TPROXY_SCRIPT.name}.bak.{now_stamp()}"))
-        if TPROXY_SYSCTL.exists():
-            shutil.copy2(TPROXY_SYSCTL, TPROXY_SYSCTL.with_name(f"{TPROXY_SYSCTL.name}.bak.{now_stamp()}"))
         shutil.copy2(script_path, TPROXY_SCRIPT)
         TPROXY_SCRIPT.chmod(0o755)
         shutil.copy2(sysctl_path, TPROXY_SYSCTL)
