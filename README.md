@@ -10,6 +10,10 @@
 
 ![Rule UI login](docs/images/rule-ui-login.jpg)
 
+节点管理：
+
+![Rule UI nodes](docs/images/rule-ui-nodes.png)
+
 9090 zashboard 面板：
 
 ![zashboard](docs/images/zashboard.jpg)
