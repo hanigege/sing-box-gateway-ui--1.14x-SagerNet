@@ -3,8 +3,6 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SING_BOX_BUNDLED_VERSION="${SING_BOX_BUNDLED_VERSION:-1.13.13}"
-SING_BOX_VERSION="${SING_BOX_VERSION:-$SING_BOX_BUNDLED_VERSION}"
-SING_BOX_SOURCE="${SING_BOX_SOURCE:-bundled}"
 SING_BOX_ARCH="${SING_BOX_ARCH:-auto}"
 INSTALL_DIR="/opt/singbox-rule-ui"
 CONFIG_DIR="/etc/sing-box"
@@ -61,32 +59,16 @@ ask() {
 
 choose_sing_box_runtime() {
   if [ "${SING_BOX_GATEWAY_ASSUME_DEFAULTS:-0}" = "1" ]; then
-    SING_BOX_SOURCE="${SING_BOX_SOURCE:-bundled}"
     SING_BOX_ARCH="${SING_BOX_ARCH:-auto}"
     return
   fi
   if [ ! -r /dev/tty ]; then
     echo "No interactive terminal detected; using bundled sing-box ${SING_BOX_BUNDLED_VERSION} and auto architecture."
-    SING_BOX_SOURCE="bundled"
-    SING_BOX_VERSION="$SING_BOX_BUNDLED_VERSION"
     SING_BOX_ARCH="${SING_BOX_ARCH:-auto}"
     return
   fi
   echo
-  echo "sing-box binary:"
-  echo "  bundled = use repository-tested sing-box ${SING_BOX_BUNDLED_VERSION} (recommended)"
-  echo "  latest  = download latest upstream release"
-  echo "  custom  = download SING_BOX_VERSION"
-  SING_BOX_SOURCE="$(ask "sing-box source: bundled/latest/custom" "$SING_BOX_SOURCE")"
-  case "$SING_BOX_SOURCE" in
-    bundled|latest|custom) ;;
-    *) SING_BOX_SOURCE="bundled" ;;
-  esac
-  if [ "$SING_BOX_SOURCE" = "custom" ]; then
-    SING_BOX_VERSION="$(ask "sing-box version" "$SING_BOX_VERSION")"
-  elif [ "$SING_BOX_SOURCE" = "bundled" ]; then
-    SING_BOX_VERSION="$SING_BOX_BUNDLED_VERSION"
-  fi
+  echo "sing-box binary: bundled ${SING_BOX_BUNDLED_VERSION} (repository-tested)"
   SING_BOX_ARCH="$(ask "CPU architecture: auto/amd64/arm64" "$SING_BOX_ARCH")"
 }
 
@@ -138,48 +120,29 @@ install_sing_box() {
     return
   fi
   arch="$(detect_arch)"
-  if [ "$SING_BOX_SOURCE" = "bundled" ]; then
-    archive="$PROJECT_DIR/third_party/sing-box/v${SING_BOX_BUNDLED_VERSION}/sing-box-${SING_BOX_BUNDLED_VERSION}-linux-${arch}.tar.gz"
-    sums="$PROJECT_DIR/third_party/sing-box/v${SING_BOX_BUNDLED_VERSION}/SHA256SUMS"
-    if [ ! -r "$archive" ]; then
-      echo "Bundled sing-box archive not found: $archive" >&2
-      echo "Set SING_BOX_SOURCE=latest to download from upstream." >&2
+  archive="$PROJECT_DIR/third_party/sing-box/v${SING_BOX_BUNDLED_VERSION}/sing-box-${SING_BOX_BUNDLED_VERSION}-linux-${arch}.tar.gz"
+  sums="$PROJECT_DIR/third_party/sing-box/v${SING_BOX_BUNDLED_VERSION}/SHA256SUMS"
+  if [ ! -r "$archive" ]; then
+    echo "Bundled sing-box archive not found: $archive" >&2
+    exit 1
+  fi
+  if [ -r "$sums" ]; then
+    archive_name="$(basename "$archive")"
+    expected="$(awk -v name="$archive_name" '$2 == name { print $1 }' "$sums")"
+    if [ -z "$expected" ]; then
+      echo "No checksum entry for bundled archive: $archive_name" >&2
       exit 1
     fi
-    if [ -r "$sums" ]; then
-      archive_name="$(basename "$archive")"
-      expected="$(awk -v name="$archive_name" '$2 == name { print $1 }' "$sums")"
-      if [ -z "$expected" ]; then
-        echo "No checksum entry for bundled archive: $archive_name" >&2
-        exit 1
-      fi
-      actual="$(sha256sum "$archive" | awk '{ print $1 }')"
-      if [ "$actual" != "$expected" ]; then
-        echo "Checksum mismatch for bundled archive: $archive_name" >&2
-        exit 1
-      fi
+    actual="$(sha256sum "$archive" | awk '{ print $1 }')"
+    if [ "$actual" != "$expected" ]; then
+      echo "Checksum mismatch for bundled archive: $archive_name" >&2
+      exit 1
     fi
-    version="$SING_BOX_BUNDLED_VERSION"
-    tmp="$(mktemp -d)"
-    trap 'rm -rf "$tmp"' EXIT
-    echo "Installing bundled sing-box ${version} (${arch})"
-    tar -xzf "$archive" -C "$tmp"
-    install -m 0755 "$tmp"/sing-box-*/sing-box /usr/local/bin/sing-box
-    return
   fi
-  if [ "$SING_BOX_SOURCE" = "latest" ] || [ "$SING_BOX_VERSION" = "latest" ]; then
-    api_url="https://api.github.com/repos/SagerNet/sing-box/releases/latest"
-    api_urls=($(download_urls "$api_url"))
-    version="$(curl_text_first "${api_urls[@]}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))')"
-  else
-    version="$SING_BOX_VERSION"
-  fi
-  url="https://github.com/SagerNet/sing-box/releases/download/v${version}/sing-box-${version}-linux-${arch}.tar.gz"
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
-  urls=($(download_urls "$url"))
-  curl_first "$tmp/sing-box.tar.gz" "${urls[@]}"
-  tar -xzf "$tmp/sing-box.tar.gz" -C "$tmp"
+  echo "Installing bundled sing-box ${SING_BOX_BUNDLED_VERSION} (${arch})"
+  tar -xzf "$archive" -C "$tmp"
   install -m 0755 "$tmp"/sing-box-*/sing-box /usr/local/bin/sing-box
 }
 

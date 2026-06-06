@@ -251,7 +251,7 @@ def main():
     MANAGER_DIR.mkdir(parents=True, exist_ok=True)
     RULE_DIR.mkdir(parents=True, exist_ok=True)
     simple_mode = ask_yes_no("Use simple mode? Start first, edit nodes and advanced options later in UI.", True)
-    lan_ip = ask("LAN IPv4 address for DNS/UI", default_lan_ip())
+    lan_ip = ask("LAN IPv4 address for sing-box/UI", default_lan_ip())
     if simple_mode:
         fake4 = DEFAULT_FAKE4
         fake6 = DEFAULT_FAKE6
