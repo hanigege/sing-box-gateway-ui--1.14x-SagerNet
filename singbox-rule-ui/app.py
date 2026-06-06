@@ -465,7 +465,46 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
     direct = groups.get("direct") or {"type": "direct", "tag": "direct"}
     block = groups.get("block") or {"type": "block", "tag": "block"}
     config["outbounds"] = [proxy, auto, *[node["outbound"] for node in nodes if node.get("enabled", True)], direct, block]
+    prune_managed_outbound_references(config, tags)
     return config
+
+
+def prune_managed_outbound_references(config, valid_tags):
+    valid = set(valid_tags) | SPECIAL_OUTBOUNDS
+
+    def scrub_outbound_refs(value):
+        if isinstance(value, dict):
+            for key, item in list(value.items()):
+                if key in {"outbound", "detour"} and isinstance(item, str) and item not in valid:
+                    # 删除节点后，旧配置里的直连节点引用要回到受管理的 Proxy，避免引用不存在的 outbound。
+                    value[key] = "Proxy"
+                elif key in {"final", "default"} and isinstance(item, str) and item not in valid:
+                    value[key] = "direct" if key == "final" else "Auto"
+                elif key == "outbounds" and isinstance(item, list):
+                    value[key] = [tag for tag in item if not isinstance(tag, str) or tag in valid]
+                else:
+                    scrub_outbound_refs(item)
+        elif isinstance(value, list):
+            for item in value:
+                scrub_outbound_refs(item)
+
+    def scrub_dns_detours(value):
+        if isinstance(value, dict):
+            for key, item in list(value.items()):
+                if key == "detour" and isinstance(item, str) and item not in valid:
+                    # DNS 的 final/default/server 指向 DNS server tag，不能按 outbound 规则改；只清理 detour。
+                    value[key] = "Proxy"
+                else:
+                    scrub_dns_detours(item)
+        elif isinstance(value, list):
+            for item in value:
+                scrub_dns_detours(item)
+
+    scrub_dns_detours(config.get("dns", {}))
+    scrub_outbound_refs(config.get("route", {}))
+    for outbound in config.get("outbounds", []) or []:
+        if isinstance(outbound, dict):
+            scrub_outbound_refs(outbound)
 
 
 def apply_route_final_policy(config):

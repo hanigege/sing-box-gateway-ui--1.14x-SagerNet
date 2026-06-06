@@ -1327,6 +1327,9 @@ function deleteNode(tag) {
     return;
   }
   state.nodes = (state.nodes || []).filter((node) => node.outbound.tag !== tag);
+  if (state.groups?.auto?.outbounds) {
+    state.groups.auto.outbounds = state.groups.auto.outbounds.filter((item) => item !== tag);
+  }
   if (editingNodeTag === tag) {
     editingNodeTag = null;
     editingNodeSnapshot = "";
