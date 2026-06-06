@@ -922,7 +922,8 @@ async function importBackupFromFile(event) {
     });
     state = result.state;
     maintenance = result.maintenance || maintenance;
-    await loadProxyInfo(true);
+    runtimeProxy = { now: null, available: false };
+    delays = {};
     setDirty(false);
     render();
     if (result.tproxySync && result.tproxySync.code !== 0) {
@@ -931,8 +932,9 @@ async function importBackupFromFile(event) {
       return;
     }
     finishActionButton("importBackupBtn", "actionDone", "done", "importBackup");
-    setStatus(`${t("backupImported")}；${t("delayUpdated")}`, "ok");
+    setStatus(t("backupImported"), "ok");
     window.alert(t("backupImportedAlert"));
+    loadProxyInfo(false).then(() => render()).catch(() => {});
   } catch (error) {
     finishActionButton("importBackupBtn", "actionFailed", "failed", "importBackup");
     setStatus(error.message || t("backupImportFailed"), "bad");
