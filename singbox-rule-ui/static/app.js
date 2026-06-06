@@ -622,7 +622,6 @@ function render() {
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.classList.toggle("active", tab.dataset.list === active);
   });
-  $("ruleEditor").classList.toggle("hidden", active === "nodes");
   $("ruleEditor").classList.toggle("hidden", active === "nodes" || active === "maintenance");
   $("nodeEditor").classList.toggle("hidden", active !== "nodes");
   $("maintenanceEditor").classList.toggle("hidden", active !== "maintenance");
@@ -1032,8 +1031,7 @@ function setDdnsDnsMode(mode) {
   state.groups.ddns = state.groups.ddns || {};
   if (state.groups.ddns.dns === mode) return;
   state.groups.ddns.dns = mode;
-  setDirty(true);
-  setStatus(t("changed"));
+  markChanged();
   render();
 }
 
@@ -1270,7 +1268,7 @@ function syncNodeFormState() {
 async function chooseDefault(tag) {
   state.groups.proxy = state.groups.proxy || {};
   state.groups.proxy.default = tag;
-  setDirty(true);
+  markChanged();
   setBusy(true);
   setStatus(t("pendingDefault"));
   render();
@@ -1305,8 +1303,7 @@ function toggleNode(tag, enabled) {
   if (!enabled && state.groups?.proxy?.default === tag) {
     state.groups.proxy.default = "Auto";
   }
-  setDirty(true);
-  setStatus(t("changed"));
+  markChanged();
   render();
 }
 
@@ -1337,14 +1334,18 @@ function deleteNode(tag) {
     $("nodeForm").reset();
     $("nodeInsecure").checked = true;
   }
-  setDirty(true);
-  setStatus(t("changed"));
+  markChanged();
   render();
 }
 
 function buildNodeFromForm() {
   const type = $("nodeType").value;
   const tag = $("nodeTag").value.trim();
+  const upMbps = $("nodeUp").value ? Number($("nodeUp").value) : null;
+  const downMbps = $("nodeDown").value ? Number($("nodeDown").value) : null;
+  if ((upMbps !== null && (!Number.isFinite(upMbps) || upMbps <= 0)) || (downMbps !== null && (!Number.isFinite(downMbps) || downMbps <= 0))) {
+    throw new Error("Mbps must be a positive number");
+  }
   const existing = editingNodeTag ? getNode(editingNodeTag) : null;
   const base = existing && existing.outbound.type === type ? structuredClone(existing.outbound) : {};
   const duplicate = nodeTags().some((item) => item === tag && item !== editingNodeTag);
@@ -1371,9 +1372,9 @@ function buildNodeFromForm() {
   if (type === "hysteria2") {
     delete outbound.uuid;
     outbound.password = secret;
-    if ($("nodeUp").value) outbound.up_mbps = Number($("nodeUp").value);
+    if (upMbps !== null) outbound.up_mbps = upMbps;
     else delete outbound.up_mbps;
-    if ($("nodeDown").value) outbound.down_mbps = Number($("nodeDown").value);
+    if (downMbps !== null) outbound.down_mbps = downMbps;
     else delete outbound.down_mbps;
     if (obfsPassword) {
       outbound.obfs = { ...(base.obfs || {}), type: "salamander", password: obfsPassword };
@@ -1389,13 +1390,13 @@ function buildNodeFromForm() {
     outbound.packet_encoding = outbound.packet_encoding || "xudp";
     outbound.tcp_fast_open = outbound.tcp_fast_open !== false;
     outbound.tls.utls = outbound.tls.utls || { enabled: true, fingerprint: "chrome" };
-    if ($("nodeUp").value || $("nodeDown").value) {
+    if (upMbps !== null || downMbps !== null) {
       outbound.multiplex = outbound.multiplex || { enabled: true, protocol: "h2mux", padding: false };
       outbound.multiplex.brutal = outbound.multiplex.brutal || { enabled: true };
       outbound.multiplex.brutal.enabled = true;
-      if ($("nodeUp").value) outbound.multiplex.brutal.up_mbps = Number($("nodeUp").value);
+      if (upMbps !== null) outbound.multiplex.brutal.up_mbps = upMbps;
       else delete outbound.multiplex.brutal.up_mbps;
-      if ($("nodeDown").value) outbound.multiplex.brutal.down_mbps = Number($("nodeDown").value);
+      if (downMbps !== null) outbound.multiplex.brutal.down_mbps = downMbps;
       else delete outbound.multiplex.brutal.down_mbps;
     } else if (outbound.multiplex?.brutal) {
       delete outbound.multiplex.brutal.up_mbps;
@@ -1436,8 +1437,7 @@ async function addNode(event) {
   event.target.reset();
   $("nodeInsecure").checked = true;
   selectNode(node.outbound.tag);
-  setDirty(true);
-  setStatus(t("changed"));
+  markChanged();
   render();
   await save();
 }
@@ -1447,8 +1447,7 @@ function removeEntry(target) {
     (item) => !(item.type === target.type && item.value === target.value),
   );
   render();
-  setDirty(true);
-  setStatus(t("changed"));
+  markChanged();
 }
 
 function addEntry(event) {
@@ -1460,12 +1459,11 @@ function addEntry(event) {
   if (!exists) state.lists[active].push({ type, value });
   $("valueInput").value = "";
   render();
-  setDirty(true);
-  setStatus(t("changed"));
+  markChanged();
 }
 
 async function save() {
-  syncDraftSettings(false);
+  syncDraftSettings();
   if (!dirty) {
     setStatus(t("noChanges"));
     return;
@@ -1616,43 +1614,42 @@ $("brandLink").addEventListener("keydown", (event) => {
     goNodes();
   }
 });
-function syncAutoSettings() {
+
+function markChanged() {
+  setDirty(true);
+  setStatus(t("changed"));
+}
+
+function syncNodeSettingsFromForm() {
   state.groups.auto = state.groups.auto || {};
   state.groups.auto.url = $("autoUrl").value.trim();
   state.groups.auto.interval = $("autoInterval").value.trim();
   state.groups.auto.tolerance = Number($("autoTolerance").value || 0);
-  setDirty(true);
-  setStatus(t("changed"));
-}
-
-function syncFakeipSettings(markDirty = true) {
   state.groups.fakeip = state.groups.fakeip || {};
   state.groups.fakeip.inet4_range = $("fakeipV4").value.trim();
   state.groups.fakeip.inet6_range = $("fakeipV6").value.trim();
-  if (markDirty) {
-    setDirty(true);
-    setStatus(t("changed"));
+  state.groups.proxy = state.groups.proxy || {};
+  if (!$("proxyDefault").classList.contains("hidden") && $("proxyDefault").value) {
+    state.groups.proxy.default = $("proxyDefault").value;
   }
 }
 
-function syncDraftSettings(markDirty = false) {
-  if (active !== "nodes") return;
-  syncFakeipSettings(markDirty);
+function syncNodeSettingsChanged() {
+  syncNodeSettingsFromForm();
+  markChanged();
 }
 
-["autoUrl", "autoInterval", "autoTolerance"].forEach((id) => {
-  $(id).addEventListener("input", syncAutoSettings);
-  $(id).addEventListener("change", syncAutoSettings);
-});
-["fakeipV4", "fakeipV6"].forEach((id) => {
-  $(id).addEventListener("input", () => syncFakeipSettings(true));
-  $(id).addEventListener("change", () => syncFakeipSettings(true));
+function syncDraftSettings() {
+  if (active !== "nodes") return;
+  syncNodeSettingsFromForm();
+}
+
+["autoUrl", "autoInterval", "autoTolerance", "fakeipV4", "fakeipV6"].forEach((id) => {
+  $(id).addEventListener("input", syncNodeSettingsChanged);
+  $(id).addEventListener("change", syncNodeSettingsChanged);
 });
 $("proxyDefault").addEventListener("change", () => {
-  state.groups.proxy = state.groups.proxy || {};
-  state.groups.proxy.default = $("proxyDefault").value;
-  setDirty(true);
-  setStatus(t("changed"));
+  syncNodeSettingsChanged();
   render();
 });
 $("langSelect").addEventListener("change", () => {

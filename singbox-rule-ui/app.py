@@ -246,6 +246,13 @@ def normalize_non_negative_number(value, default=0):
     return number
 
 
+def normalize_positive_number(value, default=None):
+    number = normalize_number(value, default)
+    if number is not None and number <= 0:
+        raise ValueError(f"Invalid positive number: {value}")
+    return number
+
+
 def normalize_cidr(value, default=None, strict=False):
     cidr = str(value or "").strip()
     if not cidr:
@@ -275,8 +282,8 @@ def normalize_node(raw):
         if not str(outbound.get("password", "")).strip():
             raise ValueError(f"{tag}: password is required")
         outbound["password"] = str(outbound["password"]).strip()
-        up = normalize_number(outbound.get("up_mbps"), None)
-        down = normalize_number(outbound.get("down_mbps"), None)
+        up = normalize_positive_number(outbound.get("up_mbps"), None)
+        down = normalize_positive_number(outbound.get("down_mbps"), None)
         if up is not None:
             outbound["up_mbps"] = up
         if down is not None:
@@ -285,6 +292,18 @@ def normalize_node(raw):
         if not str(outbound.get("uuid", "")).strip():
             raise ValueError(f"{tag}: uuid is required")
         outbound["uuid"] = str(outbound["uuid"]).strip()
+        brutal = outbound.get("multiplex", {}).get("brutal") if isinstance(outbound.get("multiplex"), dict) else None
+        if isinstance(brutal, dict):
+            up = normalize_positive_number(brutal.get("up_mbps"), None)
+            down = normalize_positive_number(brutal.get("down_mbps"), None)
+            if up is not None:
+                brutal["up_mbps"] = up
+            else:
+                brutal.pop("up_mbps", None)
+            if down is not None:
+                brutal["down_mbps"] = down
+            else:
+                brutal.pop("down_mbps", None)
     tls = outbound.get("tls")
     if isinstance(tls, dict):
         tls["enabled"] = bool(tls.get("enabled", True))
