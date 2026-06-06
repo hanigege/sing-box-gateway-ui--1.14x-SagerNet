@@ -306,9 +306,6 @@ disable_systemd_resolved_stub() {
     printf '\nDNSStubListener=no\n' >> /etc/systemd/resolved.conf
   fi
   systemctl reload-or-restart systemd-resolved.service >/dev/null 2>&1 || true
-  if [ -L /etc/resolv.conf ] && [ "$(readlink /etc/resolv.conf)" = "/run/systemd/resolve/stub-resolv.conf" ] && [ -e /run/systemd/resolve/resolv.conf ]; then
-    ln -sfn /run/systemd/resolve/resolv.conf /etc/resolv.conf
-  fi
   echo "systemd-resolved DNS stub disabled; port 53 is reserved for sing-box."
 }
 

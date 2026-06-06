@@ -107,7 +107,7 @@ curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/s
 
 安装器默认不把宿主机 DNS 指向 sing-box 本机 IP，不写入公共 DNS，也不启用 `radvd` 广播默认 IPv6 网关。PVE 虚拟机、Cloud-Init、前端软路由、RouterOS、OpenWrt 等环境可以继续按原来的方式管理 DNS 和网关。
 
-如果 53 端口被 `systemd-resolved` 的本地 stub 占用，安装器会关闭 `DNSStubListener`，把 53 端口留给 sing-box。这个动作不会把 DNS 改成公共 DNS，也不会改成 sing-box 本机 IP；如果 `/etc/resolv.conf` 原本指向 `/run/systemd/resolve/stub-resolv.conf`，安装器会把它切到 `/run/systemd/resolve/resolv.conf`，继续使用系统已有的上游 DNS。
+如果 53 端口被 `systemd-resolved` 的本地 stub 占用，安装器会关闭 `DNSStubListener`，把 53 端口留给 sing-box。这个动作不会把 DNS 改成公共 DNS，也不会改成 sing-box 本机 IP，也不会改写 `/etc/resolv.conf` 的指向；系统原有上游 DNS 仍由系统、Cloud-Init 或前端软路由配置决定。
 
 相关配置位置：
 
