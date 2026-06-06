@@ -419,6 +419,7 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
     apply_greylist_dns_fakeip(config)
     apply_inbound_dns_fakeip_fallback(config)
     apply_ddns_dns_settings(config, groups)
+    apply_fakeip_route_rule(config, groups)
     apply_route_final_policy(config)
     proxy_default = groups.get("proxy", {}).get("default", "Auto")
     if proxy_default not in {"Auto", *tags}:
@@ -446,6 +447,35 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
 
 def apply_route_final_policy(config):
     config.setdefault("route", {})["final"] = "direct"
+
+
+def apply_fakeip_route_rule(config, groups):
+    fakeip = groups.get("fakeip", {})
+    fakeip4 = normalize_cidr(fakeip.get("inet4_range", "28.0.0.0/8"), "28.0.0.0/8")
+    fakeip6 = normalize_cidr(fakeip.get("inet6_range", "2001:2::/64"), "2001:2::/64")
+    fake_networks = {
+        "28.0.0.0/8",
+        "2001:2::/64",
+        fakeip4,
+        fakeip6,
+    }
+    rules = config.setdefault("route", {}).setdefault("rules", [])
+    rules[:] = [
+        rule
+        for rule in rules
+        if not (
+            isinstance(rule, dict)
+            and rule.get("outbound") == "Proxy"
+            and isinstance(rule.get("ip_cidr"), list)
+            and any(str(item) in fake_networks for item in rule.get("ip_cidr", []))
+        )
+    ]
+    insert_at = 0
+    for index, rule in enumerate(rules):
+        if isinstance(rule, dict) and rule.get("rule_set") == CUSTOM_TAGS["greylist"]:
+            insert_at = index + 1
+            break
+    rules.insert(insert_at, {"ip_cidr": [fakeip4, fakeip6], "outbound": "Proxy"})
 
 
 def apply_cache_file_settings(config):
