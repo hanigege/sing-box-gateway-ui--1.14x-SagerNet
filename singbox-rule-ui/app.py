@@ -55,7 +55,7 @@ CUSTOM_TAGS = {
     "greylist": "custom-greylist",
     "ddns": "custom-ddns",
 }
-ENTRY_TYPES = ("domain", "domain_suffix", "domain_keyword", "domain_regex")
+ENTRY_TYPES = ("domain", "domain_suffix", "domain_keyword", "domain_regex", "ip_cidr")
 LIST_ENTRY_TYPES = {
     "whitelist": ENTRY_TYPES,
     "blacklist": ENTRY_TYPES,
@@ -164,6 +164,12 @@ def normalize_entry(entry):
         raise ValueError(f"Unsupported type: {kind}")
     if not value:
         raise ValueError("Empty value is not allowed")
+    if kind == "ip_cidr":
+        try:
+            # IP/CIDR 规则会直接影响 route 命中顺序，必须规范成真实网段，避免主机地址伪装成网段被保存。
+            return {"type": kind, "value": str(ipaddress.ip_network(value, strict=True))}
+        except Exception as exc:
+            raise ValueError(f"Invalid IP/CIDR value: {value}") from exc
     if kind != "domain_regex" and not DOMAIN_RE.match(value):
         raise ValueError(f"Invalid domain value: {value}")
     return {"type": kind, "value": value}

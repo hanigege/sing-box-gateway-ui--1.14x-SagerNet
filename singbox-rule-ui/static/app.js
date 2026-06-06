@@ -155,17 +155,19 @@ const translations = {
       domain_suffix: "example.com",
       domain_keyword: "google",
       domain_regex: "^api[0-9]+\\.example\\.com$",
+      ip_cidr: "203.0.113.0/24",
     },
     typeHelp: {
       domain: { use: "match one exact domain", example: "login.example.com" },
       domain_suffix: { use: "match this domain and all subdomains", example: "example.com" },
       domain_keyword: { use: "match domains containing this word", example: "google" },
       domain_regex: { use: "match domains with a pattern, such as api1 or api23", example: "^api[0-9]+\\.example\\.com$" },
+      ip_cidr: { use: "match a real destination IP range", example: "203.0.113.0/24" },
     },
     listTypeHelp: {
-      whitelist: "Direct: suffix is usually enough; keyword/regex are for broad or advanced direct rules.",
-      blacklist: "Block: suffix blocks a site family; keyword/regex can catch ad or tracking patterns.",
-      greylist: "Proxy: suffix is safest; keyword/regex can force groups of related domains through Proxy.",
+      whitelist: "Direct: suffix is usually enough; IP/CIDR is useful for game servers and other traffic that no longer carries a domain.",
+      blacklist: "Block: suffix blocks a site family; IP/CIDR blocks known destination ranges.",
+      greylist: "Proxy: suffix is safest; IP/CIDR can force known destination ranges through Proxy.",
       ddns: "DDNS only needs exact host or suffix. Keyword and regex are hidden to avoid accidental broad matches.",
     },
     lists: {
@@ -181,6 +183,7 @@ const translations = {
       domain_suffix: "Suffix",
       domain_keyword: "Keyword",
       domain_regex: "Regex",
+      ip_cidr: "IP/CIDR",
     },
   },
   zh: {
@@ -339,17 +342,19 @@ const translations = {
       domain_suffix: "example.com",
       domain_keyword: "google",
       domain_regex: "^api[0-9]+\\.example\\.com$",
+      ip_cidr: "203.0.113.0/24",
     },
     typeHelp: {
       domain: { use: "只匹配这个完整域名", example: "home.example.com" },
       domain_suffix: { use: "匹配该域名及其所有子域名", example: "example.com" },
       domain_keyword: { use: "域名里包含这个关键词就匹配", example: "google" },
       domain_regex: { use: "按一条表达式匹配有规律的域名，如 api1、api23", example: "^api[0-9]+\\.example\\.com$" },
+      ip_cidr: { use: "匹配真实目标 IP 网段", example: "203.0.113.0/24" },
     },
     listTypeHelp: {
-      whitelist: "白名单用于强制直连；通常用域名后缀，关键词/正则适合更宽泛或高级规则。",
-      blacklist: "黑名单用于强制阻断；后缀适合整站，关键词/正则适合广告、跟踪等模式。",
-      greylist: "灰名单用于强制代理；后缀最稳，关键词/正则适合把一组相关域名走代理。",
+      whitelist: "白名单用于强制直连；游戏服务器这类进入连接阶段只剩 IP 的流量，可以用 IP/CIDR。",
+      blacklist: "黑名单用于强制阻断；后缀适合整站，IP/CIDR 适合已知目标网段。",
+      greylist: "灰名单用于强制代理；后缀最稳，IP/CIDR 可把已知目标网段送入代理。",
       ddns: "DDNS 只保留完整域名和域名后缀；关键词/正则容易误伤，已隐藏。",
     },
     lists: {
@@ -365,6 +370,7 @@ const translations = {
       domain_suffix: "域名后缀",
       domain_keyword: "关键词",
       domain_regex: "正则",
+      ip_cidr: "IP/CIDR",
     },
   },
 };
@@ -386,7 +392,7 @@ const actionButtonTimers = {};
 
 const $ = (id) => document.getElementById(id);
 const t = (key) => translations[lang][key] || translations.en[key] || key;
-const allEntryTypes = ["domain_suffix", "domain", "domain_keyword", "domain_regex"];
+const allEntryTypes = ["domain_suffix", "domain", "domain_keyword", "domain_regex", "ip_cidr"];
 const listEntryTypes = {
   whitelist: allEntryTypes,
   blacklist: allEntryTypes,
@@ -1456,7 +1462,8 @@ function removeEntry(target) {
 function addEntry(event) {
   event.preventDefault();
   const type = $("typeInput").value;
-  const value = $("valueInput").value.trim().toLowerCase().replace(/\.$/, "");
+  let value = $("valueInput").value.trim().toLowerCase();
+  if (type !== "ip_cidr") value = value.replace(/\.$/, "");
   if (!value) return;
   const exists = (state.lists[active] || []).some((item) => item.type === type && item.value === value);
   if (!exists) state.lists[active].push({ type, value });

@@ -752,6 +752,10 @@ select {
   background: #f2e8ff;
 }
 
+.badge.ip_cidr {
+  background: #dff7ea;
+}
+
 .icon-btn {
   width: 34px;
   height: 34px;
