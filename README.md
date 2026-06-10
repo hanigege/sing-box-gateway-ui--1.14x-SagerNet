@@ -101,13 +101,13 @@ curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/s
 - IPv6 DNS 监听地址，不需要可留空
 - 是否使用模板节点，或手动输入节点 tag、server、端口和认证参数
 
-安装过程中会先下载必需分流规则、生成 TProxy 规则脚本，并执行 `sing-box check`。检查不通过时不会启用服务。
+安装过程中会先下载必需分流规则、生成 TProxy 规则脚本、检查 53 端口是否可用，并执行 `sing-box check`。如果 53 端口被 `systemd-resolved` 本地 stub 占用，安装器会明确提示正在关闭 `DNSStubListener`，释放成功后继续；如果被其它进程占用，会停止安装并提示用户先处理。检查不通过时不会启用服务。
 
 ### 安装后的 DNS 和网关
 
 安装器默认不把宿主机 DNS 指向 sing-box 本机 IP，不写入公共 DNS，也不启用 `radvd` 广播默认 IPv6 网关。PVE 虚拟机、Cloud-Init、前端软路由、RouterOS、OpenWrt 等环境可以继续按原来的方式管理 DNS 和网关。
 
-如果 53 端口被 `systemd-resolved` 的本地 stub 占用，安装器会在 `/etc/systemd/resolved.conf` 的 `[Resolve]` 段设置 `DNSStubListener=no`，随后自动重启 `systemd-resolved.service` 并等待 53 端口释放，把 53 端口留给 sing-box。这个动作不会把 DNS 改成公共 DNS，也不会改成 sing-box 本机 IP，也不会改写 `/etc/resolv.conf` 的指向；系统原有上游 DNS 仍由系统、Cloud-Init 或前端软路由配置决定。
+如果 53 端口被 `systemd-resolved` 的本地 stub 占用，安装器会在 `/etc/systemd/resolved.conf` 的 `[Resolve]` 段设置 `DNSStubListener=no`，随后自动重启 `systemd-resolved.service` 并等待 53 端口释放，把 53 端口留给 sing-box。安装输出会显示“正在检查 53 端口”“53 端口已释放”或具体占用进程，方便小白判断卡在哪里。这个动作不会把 DNS 改成公共 DNS，也不会改成 sing-box 本机 IP，也不会改写 `/etc/resolv.conf` 的指向；系统原有上游 DNS 仍由系统、Cloud-Init 或前端软路由配置决定。
 
 相关配置位置：
 

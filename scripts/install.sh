@@ -326,6 +326,7 @@ disable_systemd_resolved_stub() {
   if ! systemctl list-unit-files systemd-resolved.service >/dev/null 2>&1; then
     return
   fi
+  echo "53 端口被 systemd-resolved 本地 stub 占用，正在关闭 DNSStubListener..."
   mkdir -p "$MANAGER_DIR"
   if [ -e /etc/systemd/resolved.conf ] && [ ! -e "$MANAGER_DIR/resolved.conf.before-sing-box" ]; then
     cp -a /etc/systemd/resolved.conf "$MANAGER_DIR/resolved.conf.before-sing-box" || true
@@ -371,19 +372,26 @@ else:
 
 path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
 PY
+  # 只关闭 systemd-resolved 的本地 53 端口 stub，不能改写 /etc/resolv.conf 或替换用户原有上游 DNS。
   systemctl restart systemd-resolved.service >/dev/null 2>&1 || true
   for _ in 1 2 3 4 5; do
     sleep 1
     case "$(port53_conflicts)" in
       *systemd-resolve*|*systemd-resolved*) ;;
-      *) echo "Released local port 53 for sing-box."; return ;;
+      *) echo "53 端口已释放，sing-box 可以监听 DNS。"; return ;;
     esac
   done
-  echo "WARN: systemd-resolved still holds port 53 after restart." >&2
+  echo "WARN: systemd-resolved 重启后仍占用 53 端口。" >&2
 }
 
 ensure_dns_port_available() {
+  echo "正在检查 53 端口，确保 sing-box DNS 可以启动..."
   all_owners="$(port53_owners)"
+  if [ -z "$all_owners" ]; then
+    echo "53 端口当前未被占用。"
+  else
+    echo "53 端口当前占用进程: $all_owners"
+  fi
   case "$all_owners" in
     *systemd-resolve*|*systemd-resolved*)
       disable_systemd_resolved_stub
@@ -391,16 +399,18 @@ ensure_dns_port_available() {
   esac
   owner="$(port53_conflicts)"
   if [ -z "$owner" ]; then
+    echo "53 端口检查通过。"
     return
   fi
   case "$owner" in
     *sing-box*)
+      echo "53 端口已由 sing-box 使用，继续安装。"
       return
       ;;
     *)
-      echo "Port 53 is already in use by: $owner" >&2
-      echo "Please free port 53 before installing. If it is systemd-resolved, the installer already tried DNSStubListener=no and service restart." >&2
-      echo "The installer will not modify /etc/resolv.conf or replace your DNS upstreams automatically." >&2
+      echo "53 端口仍被占用: $owner" >&2
+      echo "请先释放 53 端口再安装。如果占用者是 systemd-resolved，安装器已经尝试设置 DNSStubListener=no 并重启服务。" >&2
+      echo "安装器不会自动改写 /etc/resolv.conf，也不会替换你的 DNS 上游。" >&2
       exit 1
       ;;
   esac
