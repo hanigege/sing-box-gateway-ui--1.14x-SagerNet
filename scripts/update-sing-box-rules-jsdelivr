@@ -53,20 +53,6 @@ mkdir -p "$BACKUP_DIR" "$NEW_DIR"
 source_url() {
   local mirror="$1" source="$2" subdir="$3" name="$4"
   case "$source" in
-    sagernet-geosite)
-      if [[ "$mirror" == *raw.githubusercontent.com ]]; then
-        echo "$mirror/SagerNet/sing-geosite/rule-set/geosite-${name}.srs"
-      else
-        echo "$mirror/SagerNet/sing-geosite@rule-set/geosite-${name}.srs"
-      fi
-      ;;
-    sagernet-geoip)
-      if [[ "$mirror" == *raw.githubusercontent.com ]]; then
-        echo "$mirror/SagerNet/sing-geoip/rule-set/geoip-${name}.srs"
-      else
-        echo "$mirror/SagerNet/sing-geoip@rule-set/geoip-${name}.srs"
-      fi
-      ;;
     metacubex)
       if [[ "$mirror" == *raw.githubusercontent.com ]]; then
         echo "$mirror/MetaCubeX/meta-rules-dat/sing/geo/${subdir}/${name}.srs"
@@ -93,7 +79,7 @@ select_mirrors() {
   local mirror url probe="$TMP_DIR/probe.srs"
   SELECTED_MIRRORS=()
   for mirror in "${RAW_MIRRORS[@]}" "${CDN_MIRRORS[@]}"; do
-    url="$(source_url "$mirror" "sagernet-geosite" "geosite" "cn")"
+    url="$(source_url "$mirror" "metacubex" "geosite" "cn")"
     if curl -4 -fsSL --connect-timeout 2 --max-time 5 "$url" -o "$probe" 2>"$TMP_DIR/probe.log" \
       && [ -s "$probe" ] && [ "$(wc -c < "$probe")" -gt 16 ]; then
       SELECTED_MIRRORS+=("$mirror")
@@ -120,7 +106,7 @@ fetch_one() {
     return 0
   fi
   for mirror in "${SELECTED_MIRRORS[@]}"; do
-    for source in "sagernet-${subdir}" "metacubex"; do
+    for source in "metacubex"; do
       url="$(source_url "$mirror" "$source" "$subdir" "$name")"
       curl_flags=(-4 -fsSL --connect-timeout 2 --max-time 6)
       if [ "$required" = "0" ]; then
