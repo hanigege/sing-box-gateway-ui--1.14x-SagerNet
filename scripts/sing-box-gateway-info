@@ -31,13 +31,8 @@ if config_path.exists():
     config = json.loads(config_path.read_text(encoding="utf-8"))
 
 controller = config.get("experimental", {}).get("clash_api", {}).get("external_controller", "")
-secret = config.get("experimental", {}).get("clash_api", {}).get("secret", "")
 lan_ip = controller.split(":", 1)[0] if ":" in controller else ""
 display_ip = default_lan_ip() if lan_ip in ("", "0.0.0.0", "::") else lan_ip
-display_controller = controller
-if controller and lan_ip in ("0.0.0.0", "::") and display_ip:
-    port = controller.rsplit(":", 1)[1] if ":" in controller else "9090"
-    display_controller = f"{display_ip}:{port}"
 token = token_path.read_text(encoding="utf-8").strip() if token_path.exists() else ""
 
 print("Sing-box Gateway")
@@ -47,11 +42,6 @@ if display_ip:
 else:
     print("Rule UI:        http://<gateway-ip>:9091/")
 print(f"Rule UI token:  {token or '<missing>'}")
-if display_controller:
-    print(f"Clash API:      http://{display_controller}")
-else:
-    print("Clash API:      http://<gateway-ip>:9090")
-print(f"Clash secret:   {secret or '<missing>'}")
 print()
 print("Forgot the passwords? Run: sing-box-gateway-info")
 print("Service checks:")

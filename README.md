@@ -32,7 +32,7 @@
 - 维护页展示规则更新、TProxy、服务状态和节点服务器解析结果
 - 9090 Clash API 仅作为 9091 后端的内部运行态数据源，不再安装独立 zashboard 静态面板
 - 实时日志只在浏览器保留最近 300 行；落盘日志由 systemd journal 管理，安装器会限制 journal 总量，避免长期 `info` 日志撑满磁盘
-- `sing-box-gateway-info` 一键查看访问地址和密钥
+- `sing-box-gateway-info` 一键查看 9091 访问地址和 Rule UI token
 
 ## 透明网关 sysctl
 
@@ -271,7 +271,7 @@ sudo bash scripts/install.sh purge
 
 ## 访问入口
 
-安装完成后会输出 9091 规则 UI token 和 9090 Clash API secret。忘记也没关系，在网关机器上运行：
+安装完成后只输出 9091 规则 UI 地址和 Rule UI token。忘记也没关系，在网关机器上运行：
 
 ```bash
 sing-box-gateway-info
@@ -283,7 +283,7 @@ sing-box-gateway-info
 http://<网关IP>:9091/
 ```
 
-9090 Clash API 保留给 9091 后端读取连接、日志和运行规则；浏览器日常管理只需要进入 9091，并使用同一个 Rule UI token 登录。
+9090 Clash API 保留给 9091 后端读取连接、日志和运行规则；浏览器日常管理只需要进入 9091，并使用同一个 Rule UI token 登录，不需要接触 Clash secret。
 
 ## 服务
 
