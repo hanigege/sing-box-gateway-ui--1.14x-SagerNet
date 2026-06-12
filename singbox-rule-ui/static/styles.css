@@ -393,6 +393,10 @@ input[type="checkbox"] {
   grid-template-columns: minmax(160px, 1fr) minmax(220px, 2fr) repeat(2, minmax(92px, 130px));
 }
 
+.dns-settings {
+  grid-template-columns: minmax(170px, 1fr) minmax(180px, 240px) minmax(140px, 170px);
+}
+
 .wide-field {
   min-width: 0;
 }
@@ -412,7 +416,8 @@ input[type="checkbox"] {
   font-weight: 700;
 }
 
-.compact-settings input {
+.compact-settings input,
+.compact-settings select {
   width: 100%;
   min-height: 36px;
 }
@@ -557,6 +562,46 @@ input[type="checkbox"] {
   font-size: 12px;
   font-weight: 600;
   line-height: 1.45;
+}
+
+.dns-delay-rows {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+}
+
+.dns-delay-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  padding: 7px 9px;
+  font-size: 13px;
+}
+
+.dns-delay-row strong {
+  overflow-wrap: anywhere;
+}
+
+.dns-delay-row span {
+  color: var(--muted);
+  text-align: right;
+}
+
+.dns-delay-row.selected {
+  border-color: #4f8dd8;
+  background: #f0f7ff;
+}
+
+.dns-delay-row.good span {
+  color: #167a4a;
+}
+
+.dns-delay-row.bad span {
+  color: #b43b3b;
 }
 
 .rows {

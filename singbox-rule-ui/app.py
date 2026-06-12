@@ -61,8 +61,15 @@ LOCAL_DNS_SERVER = {
     "type": "udp",
     "server": "119.29.29.29",
     "server_port": 53,
-    # 国内直连域名优先使用 DNSPod UDP，当前 sing-box 版本没有 DNS 上游并发/自动备用组；223.5.5.5 只作为手动回退参考，不能伪装成自动备份。
+    # 国内直连域名只会路由到一个 local-dns；当前 sing-box 没有 DNS 并发/备用组，UI 只能明确选择单个上游。
 }
+LOCAL_DNS_CHOICES = {
+    "dnspod": {"label": "DNSPod", "server": "119.29.29.29", "server_port": 53},
+    "alidns": {"label": "AliDNS", "server": "223.5.5.5", "server_port": 53},
+    "114dns": {"label": "114 DNS", "server": "114.114.114.114", "server_port": 53},
+}
+DEFAULT_LOCAL_DNS_CHOICE = "dnspod"
+LOCAL_DNS_BY_SERVER = {item["server"]: key for key, item in LOCAL_DNS_CHOICES.items()}
 ENTRY_TYPES = ("domain", "domain_suffix", "domain_keyword", "domain_regex", "ip_cidr")
 LIST_ENTRY_TYPES = {
     "whitelist": ENTRY_TYPES,
@@ -388,6 +395,7 @@ def extract_initial_manager_data(config):
     direct = None
     block = None
     fakeip = {}
+    local_dns_choice = DEFAULT_LOCAL_DNS_CHOICE
     for outbound in outbounds:
         tag = outbound.get("tag")
         if tag == "Proxy":
@@ -408,6 +416,10 @@ def extract_initial_manager_data(config):
                 "inet6_range": server.get("inet6_range", "2001:2::/64"),
             }
             break
+    for server in config.get("dns", {}).get("servers", []) or []:
+        if isinstance(server, dict) and server.get("tag") == "local-dns":
+            local_dns_choice = LOCAL_DNS_BY_SERVER.get(str(server.get("server", "")).strip(), DEFAULT_LOCAL_DNS_CHOICE)
+            break
     base = json.loads(json.dumps(config))
     base["outbounds"] = []
     groups = {
@@ -424,6 +436,7 @@ def extract_initial_manager_data(config):
         "direct": direct or {"type": "direct", "tag": "direct"},
         "block": block or {"type": "block", "tag": "block"},
         "fakeip": {**{"tag": "fakeip-dns", "inet4_range": "28.0.0.0/8", "inet6_range": "2001:2::/64", "block_quic": True}, **fakeip},
+        "dns": {"local": local_dns_choice},
         "ddns": {"dns": "local"},
     }
     return base, normalize_nodes(nodes), groups
@@ -456,6 +469,7 @@ def load_groups():
     groups.setdefault("direct", {"type": "direct", "tag": "direct"})
     groups.setdefault("block", {"type": "block", "tag": "block"})
     groups.setdefault("fakeip", {})
+    groups.setdefault("dns", {})
     groups.setdefault("ddns", {})
     groups["proxy"].setdefault("default", "Auto")
     groups["proxy"].setdefault("interrupt_exist_connections", True)
@@ -470,6 +484,8 @@ def load_groups():
     groups["fakeip"].setdefault("inet6_range", "2001:2::/64")
     # FakeIP QUIC 保护固定开启，避免旧备份或旧 UI 状态把稳定性边界关掉。
     groups["fakeip"]["block_quic"] = True
+    if groups["dns"].get("local") not in LOCAL_DNS_CHOICES:
+        groups["dns"]["local"] = DEFAULT_LOCAL_DNS_CHOICE
     if groups["ddns"].get("dns") not in ("local", "remote"):
         groups["ddns"]["dns"] = "local"
     return groups
@@ -492,7 +508,7 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
     remove_legacy_app_rule_sets(config)
     apply_portable_listeners(config)
     apply_cache_file_settings(config)
-    apply_local_dns_settings(config)
+    apply_local_dns_settings(config, groups)
     apply_fakeip_settings(config, groups)
     apply_blacklist_dns_reject(config)
     apply_greylist_dns_fakeip(config)
@@ -932,19 +948,29 @@ def apply_fakeip_settings(config, groups):
     target["inet6_range"] = inet6_range
 
 
-def apply_local_dns_settings(config):
+def local_dns_server_config(choice):
+    item = LOCAL_DNS_CHOICES.get(choice, LOCAL_DNS_CHOICES[DEFAULT_LOCAL_DNS_CHOICE])
+    server = json.loads(json.dumps(LOCAL_DNS_SERVER))
+    server["server"] = item["server"]
+    server["server_port"] = item["server_port"]
+    return server
+
+
+def apply_local_dns_settings(config, groups):
     servers = config.setdefault("dns", {}).setdefault("servers", [])
+    choice = groups.get("dns", {}).get("local", DEFAULT_LOCAL_DNS_CHOICE)
+    desired = local_dns_server_config(choice)
     target = None
     for server in servers:
         if isinstance(server, dict) and server.get("tag") == "local-dns":
             target = server
             break
     if target is None:
-        servers.append(json.loads(json.dumps(LOCAL_DNS_SERVER)))
+        servers.append(desired)
         return
     target.clear()
-    # 旧配置可能仍是 223.5.5.5 或不可用 DoH；保存时收敛到实测可用的 DNSPod UDP，避免 UI 显示已保存但运行配置仍走错误上游。
-    target.update(json.loads(json.dumps(LOCAL_DNS_SERVER)))
+    # local-dns 是国内直连域名的唯一上游，保存时必须按 UI 选择精确写入，不能伪装成并发或备用。
+    target.update(desired)
 
 
 def apply_blacklist_dns_reject(config):
@@ -2103,6 +2129,43 @@ def get_node_delays(test=False):
     return {"available": api_error is None, "error": api_error, "delays": values}
 
 
+def measure_dns_delay(choice, host="www.qq.com"):
+    item = LOCAL_DNS_CHOICES[choice]
+    started = time.monotonic()
+    try:
+        answers = query_dns_once(item["server"], item["server_port"], host, 1, timeout=3)
+        elapsed = int(round((time.monotonic() - started) * 1000))
+        return {
+            "choice": choice,
+            "label": item["label"],
+            "server": item["server"],
+            "server_port": item["server_port"],
+            "ok": bool(answers),
+            "delay": elapsed if answers else None,
+            "answers": answers[:3],
+            "error": "" if answers else "no A record",
+        }
+    except Exception as exc:
+        return {
+            "choice": choice,
+            "label": item["label"],
+            "server": item["server"],
+            "server_port": item["server_port"],
+            "ok": False,
+            "delay": None,
+            "answers": [],
+            "error": str(exc),
+        }
+
+
+def get_dns_delays():
+    # 这里测的是网关机到各国内 DNS 的实际 UDP 查询耗时，供用户手动选择单个 local-dns 上游。
+    return {
+        "host": "www.qq.com",
+        "items": {choice: measure_dns_delay(choice) for choice in LOCAL_DNS_CHOICES},
+    }
+
+
 def normalize_payload_lists(raw_lists):
     if not isinstance(raw_lists, dict):
         raise ValueError("lists must be an object")
@@ -2143,6 +2206,13 @@ def normalize_payload_groups(raw_groups, nodes=None):
             )
             # FakeIP QUIC 保护是网关稳定边界：关闭会让浏览器 QUIC 长连接压住代理链路和连接表。
             groups["fakeip"]["block_quic"] = True
+        dns = raw_groups.get("dns")
+        if isinstance(dns, dict):
+            local_dns = str(dns.get("local", groups["dns"].get("local", DEFAULT_LOCAL_DNS_CHOICE))).strip()
+            if local_dns not in LOCAL_DNS_CHOICES:
+                raise ValueError(f"Invalid local DNS upstream: {local_dns}")
+            # 国内 DNS 上游影响所有直连域名解析，只接受内置候选，避免把错误地址写成“已保存”。
+            groups["dns"]["local"] = local_dns
         ddns = raw_groups.get("ddns")
         if isinstance(ddns, dict):
             mode = str(ddns.get("dns", groups["ddns"].get("dns", "local"))).strip()
@@ -2379,6 +2449,7 @@ def load_state():
             "memory": sing_box_memory(),
             # 只展示当前运行二进制版本，便于现场判断配置兼容性；不代表会自动升级 sing-box。
             "singBoxVersion": sing_box_version(),
+            "dnsChoices": LOCAL_DNS_CHOICES,
         },
     }
 
@@ -2484,6 +2555,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             query = dict(item.split("=", 1) for item in parsed.query.split("&") if "=" in item)
             self.send_json({"delays": get_node_delays(test=query.get("test") == "1")})
+            return
+        if parsed.path == "/api/dns-delays":
+            if not self.authorized():
+                self.send_error_json("Unauthorized", 401)
+                return
+            self.send_json({"dnsDelays": get_dns_delays()})
             return
         if parsed.path.startswith("/api/runtime/"):
             if not self.authorized():

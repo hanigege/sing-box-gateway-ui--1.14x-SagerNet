@@ -118,7 +118,7 @@ curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/s
 - TProxy 脚本：`/usr/local/sbin/sing-box-tproxy-setup`
 - TProxy sysctl：`/etc/sysctl.d/99-sing-box-tproxy.conf`
 
-客户端 DNS 进入 sing-box 后，国内直连域名会交给 `local-dns` 解析。`local-dns` 默认使用 DNSPod UDP：`119.29.29.29:53`。如果这个上游在某个网络不可用，可以手动回退到阿里 `223.5.5.5:53`。当前内置 sing-box 版本的 DNS 规则只能把一次查询路由到一个 DNS server tag，不提供多个上游并发择快或自动备用的 DNS 组；因此默认不会把 `223.5.5.5`、`119.29.29.29` 或其它上游伪装成“并发最快/自动备份”，避免配置看起来生效但实际没有并发或备用。
+客户端 DNS 进入 sing-box 后，国内直连域名会交给 `local-dns` 解析。`local-dns` 默认使用 DNSPod UDP：`119.29.29.29:53`。规则 UI 的节点页可以把国内 DNS 手动切换为 DNSPod `119.29.29.29`、阿里 `223.5.5.5` 或 114 DNS `114.114.114.114`，并可实时检测网关机到这些 DNS 的 UDP 查询延时，方便按当前网络环境选择。当前内置 sing-box 版本的 DNS 规则只能把一次查询路由到一个 DNS server tag，不提供多个上游并发择快或自动备用的 DNS 组；因此 UI 里的延时只用于辅助用户手动选择单个 `local-dns`，不会把多个上游伪装成“并发最快/自动备份”。
 
 代理节点添加后，sing-box 机器本机的 DNS 不必须指向自己。更稳的做法通常是让宿主机继续使用原来的上游 DNS，例如 Cloud-Init、前端软路由、内网 DNS 或运营商 DNS；这样 sing-box 自己解析代理节点域名时不会形成自我依赖。
 

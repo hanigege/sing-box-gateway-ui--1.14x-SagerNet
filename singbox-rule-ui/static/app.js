@@ -165,6 +165,13 @@ const translations = {
     autoUrl: "Test URL",
     autoInterval: "Interval",
     autoTolerance: "Tolerance",
+    localDnsTitle: "China DNS",
+    localDnsNote: "Choose one local-dns upstream. sing-box does not run these in parallel.",
+    localDnsUpstream: "Upstream",
+    refreshDnsDelay: "Refresh DNS delay",
+    dnsDelayUpdated: "DNS delay updated",
+    dnsDelayEmpty: "DNS delay has not been tested",
+    dnsDelayFailed: "Failed",
     dnsMode: "DNS mode",
     ddnsLocalDns: "Local DNS",
     ddnsRemoteDns: "Proxy DNS",
@@ -385,6 +392,13 @@ const translations = {
     autoUrl: "测速链接",
     autoInterval: "检测间隔",
     autoTolerance: "容差",
+    localDnsTitle: "国内 DNS",
+    localDnsNote: "为国内直连域名选择一个 local-dns 上游；sing-box 不会并发查询这些 DNS。",
+    localDnsUpstream: "上游",
+    refreshDnsDelay: "刷新 DNS 延时",
+    dnsDelayUpdated: "DNS 延时已更新",
+    dnsDelayEmpty: "还没有检测 DNS 延时",
+    dnsDelayFailed: "失败",
     dnsMode: "解析方式",
     ddnsLocalDns: "本地解析",
     ddnsRemoteDns: "代理解析",
@@ -448,6 +462,8 @@ let maintenance = {};
 let runtime = { connections: [], rules: [], logLevel: "warn", logLines: [] };
 let runtimeProxy = { now: null, available: false };
 let delays = {};
+let dnsDelays = {};
+let dnsDelayHost = "";
 let active = "nodes";
 let dirty = false;
 let busy = false;
@@ -457,6 +473,7 @@ let nodeEditChanged = false;
 let metaUpdatedAt = null;
 let metaRefreshInFlight = false;
 let delayRefreshInFlight = false;
+let dnsDelayRefreshInFlight = false;
 let logStreamController = null;
 let runtimePollTimer = null;
 const actionButtonTimers = {};
@@ -568,6 +585,8 @@ function logout() {
   stopRuntimePolling();
   runtimeProxy = { now: null, available: false };
   delays = {};
+  dnsDelays = {};
+  dnsDelayHost = "";
   metaUpdatedAt = null;
   setDirty(false);
   $("tokenInput").value = "";
@@ -585,6 +604,7 @@ async function load() {
     showApp();
     render();
     setStatus(t("loaded"), "ok");
+    refreshDnsDelays({ silent: true }).catch(() => {});
   } catch (error) {
     showLogin();
     setStatus(error.message === "Unauthorized" ? t("tokenRequired") : error.message, "bad");
@@ -604,6 +624,37 @@ async function refreshMeta() {
     // A missed telemetry refresh should never interrupt rule or node editing.
   } finally {
     metaRefreshInFlight = false;
+  }
+}
+
+async function refreshDnsDelays(options = {}) {
+  if (dnsDelayRefreshInFlight) return;
+  const silent = Boolean(options.silent);
+  dnsDelayRefreshInFlight = true;
+  if (!silent) {
+    setBusy(true);
+    pulseActionButton("refreshDnsDelayBtn", "refreshDnsDelay");
+    setStatus(t("refreshDnsDelay"));
+  }
+  try {
+    const result = await api("/api/dns-delays");
+    if (result.state) state = result.state;
+    dnsDelays = result.dnsDelays?.items || {};
+    dnsDelayHost = result.dnsDelays?.host || "";
+    render();
+    if (!silent) {
+      finishActionButton("refreshDnsDelayBtn", "actionDone", "done", "refreshDnsDelay");
+      setStatus(t("dnsDelayUpdated"), "ok");
+    }
+  } catch (error) {
+    if (!silent) {
+      finishActionButton("refreshDnsDelayBtn", "actionFailed", "failed", "refreshDnsDelay");
+      setStatus(error.message, "bad");
+    }
+  } finally {
+    dnsDelayRefreshInFlight = false;
+    if (!silent) setBusy(false);
+    render();
   }
 }
 
@@ -648,6 +699,7 @@ function applyLanguage() {
   $("restartSingboxBtn").title = t("restartHint");
   $("restartTproxyBtn").textContent = t("restartTproxy");
   $("refreshDelayBtn").textContent = t("refreshDelay");
+  $("refreshDnsDelayBtn").textContent = t("refreshDnsDelay");
   $("refreshMaintenanceBtn").textContent = t("refreshMaintenance");
   $("restartUiBtn").textContent = t("restartUi");
   $("syncTproxyBtn").textContent = t("syncTproxy");
@@ -1464,6 +1516,53 @@ function autoDisplayTag() {
   return runtimeProxy.autoNow || fastestDelayTag();
 }
 
+function dnsChoices() {
+  return state.meta?.dnsChoices || {};
+}
+
+function currentLocalDns() {
+  state.groups.dns = state.groups.dns || {};
+  if (!state.groups.dns.local || !dnsChoices()[state.groups.dns.local]) state.groups.dns.local = "dnspod";
+  return state.groups.dns.local;
+}
+
+function renderLocalDnsSettings() {
+  const select = $("localDnsSelect");
+  const current = currentLocalDns();
+  select.innerHTML = "";
+  for (const [key, item] of Object.entries(dnsChoices())) {
+    const option = document.createElement("option");
+    option.value = key;
+    option.textContent = `${item.label} · ${item.server}`;
+    select.appendChild(option);
+  }
+  select.value = current;
+  const rows = $("dnsDelayRows");
+  rows.innerHTML = "";
+  const choices = Object.entries(dnsChoices());
+  if (!choices.length) {
+    rows.textContent = t("dnsDelayEmpty");
+    return;
+  }
+  for (const [key, item] of choices) {
+    const measured = dnsDelays[key];
+    const row = document.createElement("div");
+    row.className = `dns-delay-row ${key === current ? "selected" : ""} ${measured?.ok ? "good" : measured ? "bad" : ""}`;
+    const name = document.createElement("strong");
+    name.textContent = `${item.label} · ${item.server}`;
+    const value = document.createElement("span");
+    if (!measured) {
+      value.textContent = t("dnsDelayEmpty");
+    } else if (measured.ok) {
+      value.textContent = `${measured.delay} ms${dnsDelayHost ? ` · ${dnsDelayHost}` : ""}`;
+    } else {
+      value.textContent = `${t("dnsDelayFailed")}: ${measured.error || t("unknown")}`;
+    }
+    row.append(name, value);
+    rows.appendChild(row);
+  }
+}
+
 function activeProxyLabel() {
   if (!runtimeProxy.now) return "";
   const autoTag = autoDisplayTag();
@@ -1474,10 +1573,12 @@ function activeProxyLabel() {
 function renderNodes() {
   const nodes = state.nodes || [];
   state.groups.auto = state.groups.auto || {};
+  state.groups.dns = state.groups.dns || {};
   state.groups.fakeip = state.groups.fakeip || {};
   if (document.activeElement !== $("autoUrl")) $("autoUrl").value = state.groups.auto.url || "https://www.gstatic.com/generate_204";
   if (document.activeElement !== $("autoInterval")) $("autoInterval").value = state.groups.auto.interval || "30s";
   if (document.activeElement !== $("autoTolerance")) $("autoTolerance").value = state.groups.auto.tolerance ?? 50;
+  renderLocalDnsSettings();
   if (document.activeElement !== $("fakeipV4")) $("fakeipV4").value = state.groups.fakeip.inet4_range || "28.0.0.0/8";
   if (document.activeElement !== $("fakeipV6")) $("fakeipV6").value = state.groups.fakeip.inet6_range || "2001:2::/64";
   $("nodeTitle").textContent = t("nodes");
@@ -2055,6 +2156,8 @@ function syncNodeSettingsFromForm() {
   state.groups.auto.url = $("autoUrl").value.trim();
   state.groups.auto.interval = $("autoInterval").value.trim();
   state.groups.auto.tolerance = Number($("autoTolerance").value || 0);
+  state.groups.dns = state.groups.dns || {};
+  state.groups.dns.local = $("localDnsSelect").value || "dnspod";
   state.groups.fakeip = state.groups.fakeip || {};
   state.groups.fakeip.inet4_range = $("fakeipV4").value.trim();
   state.groups.fakeip.inet6_range = $("fakeipV6").value.trim();
@@ -2079,6 +2182,11 @@ function syncDraftSettings() {
   $(id).addEventListener("input", syncNodeSettingsChanged);
   $(id).addEventListener("change", syncNodeSettingsChanged);
 });
+$("localDnsSelect").addEventListener("change", () => {
+  syncNodeSettingsChanged();
+  render();
+});
+$("refreshDnsDelayBtn").addEventListener("click", refreshDnsDelays);
 $("proxyDefault").addEventListener("change", () => {
   syncNodeSettingsChanged();
   render();

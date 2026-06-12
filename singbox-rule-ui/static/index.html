@@ -100,6 +100,19 @@
             </label>
           </section>
 
+          <section class="compact-settings dns-settings" aria-label="Local DNS settings">
+            <div>
+              <h3 data-i18n="localDnsTitle">Local DNS</h3>
+              <p data-i18n="localDnsNote">Choose one upstream for direct China domains.</p>
+            </div>
+            <label>
+              <span data-i18n="localDnsUpstream">Upstream</span>
+              <select id="localDnsSelect"></select>
+            </label>
+            <button id="refreshDnsDelayBtn" class="secondary-btn" type="button" data-i18n="refreshDnsDelay">Refresh DNS delay</button>
+            <div id="dnsDelayRows" class="dns-delay-rows wide-field"></div>
+          </section>
+
           <section class="compact-settings" aria-label="FakeIP settings">
             <div>
               <h3 data-i18n="fakeipTitle">FakeIP</h3>

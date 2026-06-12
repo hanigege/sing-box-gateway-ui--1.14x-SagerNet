@@ -297,6 +297,7 @@ def main():
         "direct": {"type": "direct", "tag": "direct"},
         "block": {"type": "block", "tag": "block"},
         "fakeip": {"tag": "fakeip-dns", "inet4_range": fake4, "inet6_range": fake6, "block_quic": True},
+        "dns": {"local": "dnspod"},
         "ddns": {"dns": "local"},
     }
     for name in ("whitelist", "blacklist", "greylist", "ddns"):
