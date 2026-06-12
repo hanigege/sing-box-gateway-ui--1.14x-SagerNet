@@ -6,7 +6,7 @@ INSTALL_DIR="/opt/singbox-rule-ui"
 MANAGER_DIR="$CONFIG_DIR/manager"
 INSTALL_STATE_FILE="$MANAGER_DIR/install-state"
 RADVD_STATE_FILE="$MANAGER_DIR/radvd-state.before-sing-box"
-APT_PACKAGES=(curl ca-certificates tar gzip unzip python3 nftables iproute2 rsync util-linux)
+APT_PACKAGES=(curl ca-certificates tar gzip python3 nftables iproute2 rsync util-linux)
 PURGE=0
 ASSUME_YES=0
 

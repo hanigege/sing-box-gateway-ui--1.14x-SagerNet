@@ -13,7 +13,7 @@ import ipaddress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode, unquote, urlparse
+from urllib.parse import parse_qs, quote, urlencode, unquote, urlparse
 from urllib.request import Request, urlopen
 
 
@@ -55,6 +55,14 @@ CUSTOM_TAGS = {
     "greylist": "custom-greylist",
     "ddns": "custom-ddns",
 }
+
+LOCAL_DNS_SERVER = {
+    "tag": "local-dns",
+    "type": "udp",
+    "server": "119.29.29.29",
+    "server_port": 53,
+    # 国内直连域名优先使用 DNSPod UDP，当前 sing-box 版本没有 DNS 上游并发/自动备用组；223.5.5.5 只作为手动回退参考，不能伪装成自动备份。
+}
 ENTRY_TYPES = ("domain", "domain_suffix", "domain_keyword", "domain_regex", "ip_cidr")
 LIST_ENTRY_TYPES = {
     "whitelist": ENTRY_TYPES,
@@ -66,6 +74,7 @@ DOMAIN_RE = re.compile(r"^[A-Za-z0-9_*.-]+$")
 SPECIAL_OUTBOUNDS = {"Proxy", "Auto", "direct", "block"}
 SUPPORTED_NODE_TYPES = {"hysteria2", "vless"}
 BACKUP_VERSION = 1
+LOG_LEVELS = {"trace", "debug", "info", "warn", "warning", "error", "fatal", "panic"}
 LEGACY_APP_RULE_SETS = {
     "geosite-ai",
     "geosite-youtube",
@@ -483,6 +492,7 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
     remove_legacy_app_rule_sets(config)
     apply_portable_listeners(config)
     apply_cache_file_settings(config)
+    apply_local_dns_settings(config)
     apply_fakeip_settings(config, groups)
     apply_blacklist_dns_reject(config)
     apply_greylist_dns_fakeip(config)
@@ -922,6 +932,21 @@ def apply_fakeip_settings(config, groups):
     target["inet6_range"] = inet6_range
 
 
+def apply_local_dns_settings(config):
+    servers = config.setdefault("dns", {}).setdefault("servers", [])
+    target = None
+    for server in servers:
+        if isinstance(server, dict) and server.get("tag") == "local-dns":
+            target = server
+            break
+    if target is None:
+        servers.append(json.loads(json.dumps(LOCAL_DNS_SERVER)))
+        return
+    target.clear()
+    # 旧配置可能仍是 223.5.5.5 或不可用 DoH；保存时收敛到实测可用的 DNSPod UDP，避免 UI 显示已保存但运行配置仍走错误上游。
+    target.update(json.loads(json.dumps(LOCAL_DNS_SERVER)))
+
+
 def apply_blacklist_dns_reject(config):
     dns_rules = config.setdefault("dns", {}).setdefault("rules", [])
     dns_rules[:] = [
@@ -1098,6 +1123,15 @@ def sing_box_memory():
     except Exception:
         pass
     return {"pid": pid, "rssBytes": None, "rss": "unknown"}
+
+
+def sing_box_version():
+    result = run_command(["/usr/local/bin/sing-box", "version"], timeout=8)
+    first_line = (result["stdout"] or result["stderr"]).splitlines()[0:1]
+    if not first_line:
+        return "unknown"
+    match = re.search(r"sing-box version\s+(\S+)", first_line[0])
+    return match.group(1) if match else first_line[0].strip()
 
 
 def check_config(config_path=CONFIG_PATH):
@@ -1904,6 +1938,78 @@ def clash_api_request(path, method="GET", payload=None, timeout=8):
         return {"ok": False, "code": 0, "error": str(exc)}
 
 
+def clash_runtime_snapshot(kind):
+    paths = {
+        "configs": "/configs",
+        "connections": "/connections",
+        "rules": "/rules",
+        "traffic": "/traffic",
+    }
+    if kind not in paths:
+        raise ValueError("Unsupported runtime endpoint")
+    result = clash_api_request(paths[kind], timeout=10)
+    if not result["ok"]:
+        return result
+    return {"ok": True, "code": result["code"], "data": result.get("data", {})}
+
+
+def normalize_log_level(value):
+    level = str(value or "").strip().lower()
+    aliases = {"warning": "warn"}
+    level = aliases.get(level, level)
+    if level not in LOG_LEVELS:
+        raise ValueError(f"Invalid log level: {value}")
+    return level
+
+
+def current_log_level():
+    config = load_json(CONFIG_PATH, {}) if CONFIG_PATH.exists() else {}
+    return normalize_log_level(config.get("log", {}).get("level", "warn"))
+
+
+def set_log_level(level):
+    level = normalize_log_level(level)
+    ensure_manager_data()
+    base = load_json(BASE_CONFIG_PATH, {})
+    previous_base = backup_manager_file(BASE_CONFIG_PATH)
+    previous_config = backup_manager_file(CONFIG_PATH)
+    old_level = normalize_log_level(base.get("log", {}).get("level", current_log_level()))
+    base.setdefault("log", {})
+    # 日志级别会影响实时诊断数据量，必须写入 base 配置；否则下一次保存节点/规则会把运行态改动覆盖掉。
+    base["log"]["level"] = level
+    write_json(BASE_CONFIG_PATH, base)
+    try:
+        config = render_config()
+        validate_outbound_references(config)
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=str(MANAGER_DIR), prefix=".log-level-", suffix=".json", delete=False) as handle:
+            staged_path = Path(handle.name)
+            handle.write(json.dumps(config, indent=2, ensure_ascii=False) + "\n")
+        check = check_config(staged_path)
+        staged_path.unlink(missing_ok=True)
+        if check["code"] != 0:
+            restore_file(BASE_CONFIG_PATH, previous_base)
+            return {"ok": False, "error": "Config check failed. Log level was not changed.", "check": check, "restart": None, "state": load_state()}
+        write_json(CONFIG_PATH, config)
+        restart = restart_sing_box()
+        if restart["code"] != 0 or service_status() != "active":
+            restore_file(BASE_CONFIG_PATH, previous_base)
+            restore_file(CONFIG_PATH, previous_config)
+            rollback_restart = restart_sing_box()
+            return {
+                "ok": False,
+                "error": "Restart failed. Previous log level was restored.",
+                "check": check,
+                "restart": restart,
+                "rollback": {"restart": rollback_restart, "service": service_status()},
+                "state": load_state(),
+            }
+        return {"ok": True, "level": level, "previous": old_level, "check": check, "restart": restart, "state": load_state()}
+    except Exception:
+        restore_file(BASE_CONFIG_PATH, previous_base)
+        restore_file(CONFIG_PATH, previous_config)
+        raise
+
+
 def get_proxy_state():
     proxy_result = clash_api_request("/proxies/Proxy")
     if not proxy_result["ok"]:
@@ -2271,6 +2377,8 @@ def load_state():
             "configPath": str(CONFIG_PATH),
             "service": service_status(),
             "memory": sing_box_memory(),
+            # 只展示当前运行二进制版本，便于现场判断配置兼容性；不代表会自动升级 sing-box。
+            "singBoxVersion": sing_box_version(),
         },
     }
 
@@ -2309,6 +2417,32 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def stream_clash_api(self, path, content_type="application/json; charset=utf-8", timeout=60):
+        api_url, api_secret = clash_api_settings()
+        headers = {}
+        if api_secret:
+            headers["Authorization"] = f"Bearer {api_secret}"
+        # 9091 已经完成 Rule UI token 鉴权；这里仅用后端读取到的 Clash secret 访问白名单接口，不能把 secret 暴露给浏览器。
+        request = Request(f"{api_url}{path}", headers=headers)
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                self.send_response(response.status)
+                self.send_header("Content-Type", content_type)
+                self.end_headers()
+                while True:
+                    chunk = response.read(4096)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+        except HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            self.send_error_json(raw or str(exc), exc.code)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except (URLError, TimeoutError, OSError) as exc:
+            self.send_error_json(str(exc), 502)
 
     def read_json_body(self):
         length = int(self.headers.get("Content-Length", "0"))
@@ -2350,6 +2484,25 @@ class Handler(BaseHTTPRequestHandler):
                 return
             query = dict(item.split("=", 1) for item in parsed.query.split("&") if "=" in item)
             self.send_json({"delays": get_node_delays(test=query.get("test") == "1")})
+            return
+        if parsed.path.startswith("/api/runtime/"):
+            if not self.authorized():
+                self.send_error_json("Unauthorized", 401)
+                return
+            kind = parsed.path.rsplit("/", 1)[-1]
+            if kind == "logs":
+                try:
+                    query = parse_qs(parsed.query)
+                    level = normalize_log_level((query.get("level") or ["info"])[0])
+                except ValueError as exc:
+                    self.send_error_json(str(exc), 400)
+                    return
+                self.stream_clash_api(f"/logs?{urlencode({'level': level})}", content_type="text/plain; charset=utf-8", timeout=300)
+                return
+            if kind in {"configs", "connections", "rules", "traffic"}:
+                self.send_json({"runtime": clash_runtime_snapshot(kind), "logLevel": current_log_level()})
+                return
+            self.send_error_json("Not found", 404)
             return
         if parsed.path == "/api/token-hint":
             self.send_json({"message": "Use Authorization: Bearer <token> from the server token file."})
@@ -2485,6 +2638,14 @@ class Handler(BaseHTTPRequestHandler):
                 if not tag:
                     raise ValueError("tag is required")
                 result = apply_proxy_default(tag)
+                status = 200 if result["ok"] else 422 if result.get("check", {}).get("code") != 0 else 500
+                self.send_json(result, status)
+                return
+            if parsed.path == "/api/runtime/log-level":
+                level = str(payload.get("level", "")).strip()
+                if not level:
+                    raise ValueError("level is required")
+                result = set_log_level(level)
                 status = 200 if result["ok"] else 422 if result.get("check", {}).get("code") != 0 else 500
                 self.send_json(result, status)
                 return

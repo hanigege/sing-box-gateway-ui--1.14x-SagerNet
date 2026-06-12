@@ -35,6 +35,7 @@
       <section id="app" class="workspace hidden">
         <nav class="tabs" aria-label="Rule lists">
           <button class="tab active" data-list="nodes" type="button"></button>
+          <button class="tab" data-list="runtime" type="button"></button>
           <button class="tab" data-list="whitelist" type="button"></button>
           <button class="tab" data-list="blacklist" type="button"></button>
           <button class="tab" data-list="greylist" type="button"></button>
@@ -169,8 +170,25 @@
           </section>
           <div id="maintenanceRows" class="maintenance-rows"></div>
         </section>
+
+        <section id="runtimeEditor" class="panel editor hidden">
+          <div class="editor-head">
+            <div>
+              <h2 id="runtimeTitle">Runtime</h2>
+              <p id="runtimeSummary">Connections, logs and active rules</p>
+            </div>
+            <div class="tools runtime-tools">
+              <select id="runtimeView" aria-label="Runtime view">
+                <option value="connections"></option>
+                <option value="logs"></option>
+                <option value="rules"></option>
+              </select>
+            </div>
+          </div>
+          <div id="runtimeRows" class="runtime-rows"></div>
+        </section>
       </section>
     </main>
-    <script src="/app.js?v=20260611-maintenance-ui"></script>
+    <script src="/app.js?v=20260612-polished-ui"></script>
   </body>
 </html>

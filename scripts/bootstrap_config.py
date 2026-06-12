@@ -188,7 +188,13 @@ def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
                     "tls": {"server_name": "cloudflare-dns.com"},
                     "detour": "Proxy",
                 },
-                {"tag": "local-dns", "type": "udp", "server": "223.5.5.5", "server_port": 53},
+                {
+                    "tag": "local-dns",
+                    "type": "udp",
+                    "server": "119.29.29.29",
+                    "server_port": 53,
+                    # 国内直连域名优先使用 DNSPod UDP，当前 sing-box 版本没有 DNS 上游并发/自动备用组；223.5.5.5 只作为手动回退参考，不能伪装成自动备份。
+                },
                 {"tag": "fakeip-dns", "type": "fakeip", "inet4_range": fake4, "inet6_range": fake6},
             ],
             "rules": [
@@ -247,7 +253,6 @@ def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
             "cache_file": {"enabled": True, "store_fakeip": True},
             "clash_api": {
                 "external_controller": f"{lan_ip}:9090",
-                "external_ui": "/etc/sing-box/ui",
                 "secret": ui_secret,
                 "default_mode": "rule",
             },

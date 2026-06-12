@@ -42,8 +42,9 @@ const translations = {
     remove: "Remove",
     service: "Service",
     memory: "Memory",
-    updated: "Updated",
-    ruleDir: "Rule dir",
+    updated: "System time",
+    ruleDir: "Config dir",
+    singBoxVersion: "sing-box",
     nodes: "Nodes",
     nodesNote: "Managed outbounds",
     enabled: "Enabled",
@@ -70,6 +71,28 @@ const translations = {
     refreshMaintenance: "Refresh",
     refreshingMaintenance: "Refreshing",
     maintenanceRefreshed: "Refreshed",
+    runtime: "Runtime",
+    runtimeNote: "Connections, logs and active rules",
+    refreshingRuntime: "Refreshing runtime",
+    runtimeRefreshed: "Runtime refreshed",
+    runtimeUnavailable: "Runtime API unavailable",
+    runtimeViewConnections: "Connections",
+    runtimeViewLogs: "Logs",
+    runtimeViewRules: "Rules",
+    noRuntimeRows: "No runtime data",
+    waitingRuntimeLogs: "Waiting for logs",
+    startLogs: "Start logs",
+    stopLogs: "Stop logs",
+    logsStreaming: "Streaming logs",
+    logsStopped: "Logs stopped",
+    connectionHost: "Host",
+    connectionType: "Type",
+    connectionRoute: "Route",
+    connectionChain: "Proxy chain",
+    connectionTraffic: "Traffic",
+    logIndex: "No.",
+    rulePayload: "Payload",
+    ruleTarget: "Target",
     restartUi: "Restart UI",
     restartingUi: "Restarting UI",
     uiRestartScheduled: "UI restart requested. The page will reconnect shortly.",
@@ -185,6 +208,7 @@ const translations = {
       greylist: { title: "Greylist", note: "Forced proxy" },
       ddns: { title: "Local DDNS", note: "Local DNS and direct routing" },
       nodes: { title: "Nodes", note: "Add, delete, and enable outbounds" },
+      runtime: { title: "Runtime", note: "Connections, logs and active rules" },
       maintenance: { title: "Maintenance", note: "Rule-set updates and TProxy status" },
     },
     types: {
@@ -238,8 +262,9 @@ const translations = {
     remove: "删除",
     service: "服务",
     memory: "内存",
-    updated: "刷新",
-    ruleDir: "规则目录",
+    updated: "系统时间",
+    ruleDir: "配置目录",
+    singBoxVersion: "sing-box",
     nodes: "节点",
     nodesNote: "受管理的出站节点",
     enabled: "启用",
@@ -266,6 +291,28 @@ const translations = {
     refreshMaintenance: "刷新状态",
     refreshingMaintenance: "正在刷新",
     maintenanceRefreshed: "已刷新",
+    runtime: "运行状态",
+    runtimeNote: "连接、日志与运行规则",
+    refreshingRuntime: "正在刷新运行状态",
+    runtimeRefreshed: "运行状态已刷新",
+    runtimeUnavailable: "运行态 API 不可用",
+    runtimeViewConnections: "连接",
+    runtimeViewLogs: "日志",
+    runtimeViewRules: "规则",
+    noRuntimeRows: "暂无运行数据",
+    waitingRuntimeLogs: "正在接收日志",
+    startLogs: "开始日志",
+    stopLogs: "停止日志",
+    logsStreaming: "正在接收日志",
+    logsStopped: "日志已停止",
+    connectionHost: "目标",
+    connectionType: "类型",
+    connectionRoute: "路由",
+    connectionChain: "代理链",
+    connectionTraffic: "流量",
+    logIndex: "序号",
+    rulePayload: "匹配条件",
+    ruleTarget: "出站",
     restartUi: "重启 UI",
     restartingUi: "正在重启 UI",
     uiRestartScheduled: "UI 正在重启，页面稍后会自动恢复。",
@@ -381,6 +428,7 @@ const translations = {
       greylist: { title: "灰名单", note: "强制代理" },
       ddns: { title: "本地 DDNS", note: "本地 DNS + 直连" },
       nodes: { title: "节点", note: "添加、删除、启停出站节点" },
+      runtime: { title: "运行状态", note: "连接、日志与运行规则" },
       maintenance: { title: "维护", note: "规则集更新与 TProxy 状态" },
     },
     types: {
@@ -397,6 +445,7 @@ let token = localStorage.getItem("ruleUiToken") || "";
 let lang = localStorage.getItem("ruleUiLang") || ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
 let state = { lists: { whitelist: [], blacklist: [], greylist: [], ddns: [] }, nodes: [], groups: {}, meta: {} };
 let maintenance = {};
+let runtime = { connections: [], rules: [], logLevel: "warn", logLines: [] };
 let runtimeProxy = { now: null, available: false };
 let delays = {};
 let active = "nodes";
@@ -408,6 +457,8 @@ let nodeEditChanged = false;
 let metaUpdatedAt = null;
 let metaRefreshInFlight = false;
 let delayRefreshInFlight = false;
+let logStreamController = null;
+let runtimePollTimer = null;
 const actionButtonTimers = {};
 
 const $ = (id) => document.getElementById(id);
@@ -512,6 +563,9 @@ function logout() {
   localStorage.removeItem("ruleUiToken");
   state = { lists: { whitelist: [], blacklist: [], greylist: [], ddns: [] }, nodes: [], groups: {}, meta: {} };
   maintenance = {};
+  runtime = { connections: [], rules: [], logLevel: "warn", logLines: [] };
+  stopRuntimeLogs(false);
+  stopRuntimePolling();
   runtimeProxy = { now: null, available: false };
   delays = {};
   metaUpdatedAt = null;
@@ -598,6 +652,9 @@ function applyLanguage() {
   $("restartUiBtn").textContent = t("restartUi");
   $("syncTproxyBtn").textContent = t("syncTproxy");
   $("updateRulesBtn").textContent = t("updateRules");
+  $("runtimeView").querySelector('option[value="connections"]').textContent = t("runtimeViewConnections");
+  $("runtimeView").querySelector('option[value="logs"]').textContent = t("runtimeViewLogs");
+  $("runtimeView").querySelector('option[value="rules"]').textContent = t("runtimeViewRules");
   $("nodeSubmit").textContent = editingNodeTag ? t("updateNode") : t("addNode");
   $("nodeCancel").textContent = t("cancelEdit");
 }
@@ -632,12 +689,17 @@ function renderMeta() {
   const memoryText = document.createElement("span");
   memoryText.textContent = `${t("memory")}: ${memory}`;
   memoryPill.append(pulse, memoryText);
+  const versionPill = document.createElement("span");
+  versionPill.className = "meta-pill version-pill";
+  versionPill.textContent = `${t("singBoxVersion")}: ${state.meta?.singBoxVersion || "unknown"}`;
   const ruleDir = document.createElement("span");
-  ruleDir.textContent = `${t("ruleDir")}: ${state.meta.ruleDir || ""}`;
-  $("meta").append(service, memoryPill, ruleDir);
+  ruleDir.className = "meta-pill rule-dir-pill";
+  const configDir = state.meta?.configPath ? state.meta.configPath.replace(/\/[^/]+$/, "") : "";
+  ruleDir.textContent = `${t("ruleDir")}: ${configDir || state.meta.ruleDir || ""}`;
+  $("meta").append(service, memoryPill, versionPill, ruleDir);
   if (metaUpdatedAt) {
     const updated = document.createElement("span");
-    updated.className = "meta-updated";
+    updated.className = "meta-pill meta-updated time-pill";
     updated.textContent = `${t("updated")}: ${metaUpdatedAt.toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
@@ -654,9 +716,15 @@ function render() {
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.classList.toggle("active", tab.dataset.list === active);
   });
-  $("ruleEditor").classList.toggle("hidden", active === "nodes" || active === "maintenance");
+  $("ruleEditor").classList.toggle("hidden", active === "nodes" || active === "maintenance" || active === "runtime");
   $("nodeEditor").classList.toggle("hidden", active !== "nodes");
   $("maintenanceEditor").classList.toggle("hidden", active !== "maintenance");
+  $("runtimeEditor").classList.toggle("hidden", active !== "runtime");
+  if (active === "runtime") {
+    renderRuntime();
+    updateButtons();
+    return;
+  }
   if (active === "maintenance") {
     renderMaintenance();
     updateButtons();
@@ -854,6 +922,237 @@ function renderMaintenance() {
     [t("plannedBypass4"), tproxy.planned?.bypass4],
     [t("plannedBypass6"), tproxy.planned?.bypass6],
   ], `${t("tproxyPolicy")}${tproxy.ipv6PrefixMatches === false ? ` ${t("prefixMismatch")}` : ""}`));
+}
+
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${bytes} B`;
+}
+
+function formatRate(value) {
+  const bytes = Number(value || 0);
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB/s`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} kB/s`;
+  return `${bytes} B/s`;
+}
+
+function runtimeCard(title, meta, detail) {
+  const card = document.createElement("section");
+  card.className = "runtime-card";
+  const head = document.createElement("div");
+  head.className = "runtime-card-head";
+  const name = document.createElement("strong");
+  name.textContent = title || t("unknown");
+  const small = document.createElement("small");
+  small.textContent = meta || "";
+  head.append(name, small);
+  const body = document.createElement("p");
+  body.textContent = detail || "";
+  card.append(head, body);
+  return card;
+}
+
+function renderRuntimeConnections(rows) {
+  if (!rows.length) return renderRuntimeEmpty();
+  const table = document.createElement("div");
+  table.className = "runtime-table connections-table";
+  const header = document.createElement("div");
+  header.className = "runtime-table-row runtime-table-head";
+  [t("connectionHost"), t("connectionType"), t("connectionRoute"), t("connectionChain")].forEach((label) => {
+    const cell = document.createElement("span");
+    cell.textContent = label;
+    header.appendChild(cell);
+  });
+  table.appendChild(header);
+  for (const item of rows) {
+    const metadata = item.metadata || {};
+    const host = `${metadata.host || metadata.destinationIP || ""}${metadata.destinationPort ? `:${metadata.destinationPort}` : ""}` || t("unknown");
+    const chain = Array.isArray(item.chains) ? item.chains.join(" -> ") : "";
+    const row = document.createElement("div");
+    row.className = "runtime-table-row";
+    const hostCell = document.createElement("strong");
+    hostCell.textContent = host;
+    const type = document.createElement("span");
+    type.className = "runtime-type-pill";
+    type.textContent = `${metadata.type || ""}${metadata.network ? ` | ${metadata.network}` : ""}` || t("unknown");
+    const rule = document.createElement("span");
+    rule.textContent = item.rule || t("unknown");
+    const chainCell = document.createElement("span");
+    chainCell.textContent = chain || t("unknown");
+    row.append(hostCell, type, rule, chainCell);
+    table.appendChild(row);
+  }
+  return table;
+}
+
+function renderRuntimeRules(rows) {
+  if (!rows.length) return renderRuntimeEmpty();
+  const frag = document.createDocumentFragment();
+  rows.forEach((item, index) => {
+    const card = document.createElement("section");
+    card.className = "runtime-rule-card";
+    const head = document.createElement("div");
+    head.className = "runtime-rule-head";
+    const no = document.createElement("span");
+    no.className = "runtime-rule-no";
+    no.textContent = `#${index + 1}`;
+    const payload = document.createElement("strong");
+    payload.textContent = item.payload || t("unknown");
+    const target = document.createElement("span");
+    const proxy = item.proxy || t("unknown");
+    const targetKey = String(proxy).match(/\(([^)]+)\)/)?.[1] || proxy;
+    target.className = `runtime-rule-target ${String(targetKey).toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}`;
+    target.textContent = targetKey;
+    const raw = document.createElement("small");
+    raw.textContent = `${t("ruleTarget")}: ${proxy}`;
+    head.append(no, payload, target);
+    card.append(head, raw);
+    frag.appendChild(card);
+  });
+  return frag;
+}
+
+function renderRuntimeLogs() {
+  if (!runtime.logLines.length) return renderRuntimeEmpty(logStreamController ? t("waitingRuntimeLogs") : t("noRuntimeRows"));
+  const list = document.createElement("div");
+  list.className = "runtime-log-list";
+  runtime.logLines.forEach((raw, index) => {
+    let level = "info";
+    let payload = raw;
+    try {
+      const item = JSON.parse(raw);
+      level = item.type || level;
+      payload = item.payload || raw;
+    } catch (error) {
+      const match = raw.match(/"type":"([^"]+)".*"payload":"(.*)"}/);
+      if (match) {
+        level = match[1];
+        payload = match[2];
+      }
+    }
+    const row = document.createElement("div");
+    row.className = "runtime-log-row";
+    const no = document.createElement("span");
+    no.className = "runtime-log-no";
+    no.textContent = String(Math.max(1, runtime.logLines.length - index));
+    const badge = document.createElement("span");
+    badge.className = `runtime-log-level ${level}`;
+    badge.textContent = level;
+    const message = document.createElement("code");
+    message.textContent = payload;
+    row.append(no, badge, message);
+    list.appendChild(row);
+  });
+  return list;
+}
+
+function renderRuntimeEmpty(message = t("noRuntimeRows")) {
+  const empty = document.createElement("div");
+  empty.className = message === t("waitingRuntimeLogs") ? "runtime-waiting" : "empty";
+  if (message === t("waitingRuntimeLogs")) {
+    const pulse = document.createElement("span");
+    pulse.className = "runtime-waiting-pulse";
+    const text = document.createElement("strong");
+    text.textContent = message;
+    empty.append(pulse, text);
+  } else {
+    empty.textContent = message;
+  }
+  return empty;
+}
+
+function renderRuntime() {
+  $("runtimeTitle").textContent = t("runtime");
+  $("runtimeSummary").textContent = t("runtimeNote");
+  const view = $("runtimeView").value || "connections";
+  const rows = $("runtimeRows");
+  rows.innerHTML = "";
+  if (view === "connections") rows.appendChild(renderRuntimeConnections(runtime.connections || []));
+  else if (view === "rules") rows.appendChild(renderRuntimeRules(runtime.rules || []));
+  else rows.appendChild(renderRuntimeLogs());
+}
+
+function stopRuntimePolling() {
+  if (runtimePollTimer) {
+    clearInterval(runtimePollTimer);
+    runtimePollTimer = null;
+  }
+}
+
+function ensureRuntimePolling() {
+  stopRuntimePolling();
+  if (active !== "runtime" || $("runtimeView").value !== "connections") return;
+  runtimePollTimer = setInterval(() => {
+    if (!busy && active === "runtime" && $("runtimeView").value === "connections") {
+      refreshRuntime({ quiet: true });
+    }
+  }, 2500);
+}
+
+async function refreshRuntime(options = {}) {
+  const view = $("runtimeView").value || "connections";
+  if (view === "logs") {
+    renderRuntime();
+    if (!logStreamController) startRuntimeLogs();
+    return;
+  }
+  if (!options.quiet) setStatus(t("refreshingRuntime"));
+  try {
+    const result = await api(`/api/runtime/${view}`);
+    if (!result.runtime?.ok) throw new Error(result.runtime?.error || t("runtimeUnavailable"));
+    if (view === "connections") runtime.connections = result.runtime.data?.connections || [];
+    if (view === "rules") runtime.rules = result.runtime.data?.rules || [];
+    runtime.logLevel = result.logLevel || runtime.logLevel;
+    render();
+    if (view === "connections") ensureRuntimePolling();
+    if (!options.quiet) setStatus(t("runtimeRefreshed"), "ok");
+  } catch (error) {
+    if (!options.quiet) setStatus(error.message, "bad");
+  } finally {
+  }
+}
+
+function stopRuntimeLogs(updateStatus = true) {
+  if (logStreamController) {
+    logStreamController.abort();
+    logStreamController = null;
+  }
+  if (updateStatus) {
+    render();
+    setStatus(t("logsStopped"), "ok");
+  }
+}
+
+async function startRuntimeLogs() {
+  stopRuntimeLogs(false);
+  runtime.logLines = [];
+  const controller = new AbortController();
+  logStreamController = controller;
+  render();
+  setStatus(t("logsStreaming"), "ok");
+  try {
+    const headers = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const response = await fetch("/api/runtime/logs?level=info", { headers, signal: controller.signal });
+    if (!response.ok) throw new Error(`${t("runtimeUnavailable")}: HTTP ${response.status}`);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    while (logStreamController === controller) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value, { stream: true });
+      runtime.logLines.push(...text.split(/\r?\n/).filter(Boolean));
+      runtime.logLines = runtime.logLines.slice(-300);
+      if (active === "runtime" && $("runtimeView").value === "logs") renderRuntime();
+    }
+  } catch (error) {
+    if (error.name !== "AbortError") setStatus(error.message, "bad");
+  } finally {
+    if (logStreamController === controller) logStreamController = null;
+    if (active === "runtime") renderRuntime();
+  }
 }
 
 async function refreshMaintenance() {
@@ -1699,11 +1998,17 @@ async function restartUi() {
 
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
-    active = tab.dataset.list;
+    const nextActive = tab.dataset.list;
+    if (active === "runtime" && nextActive !== "runtime") {
+      stopRuntimeLogs(false);
+      stopRuntimePolling();
+    }
+    active = nextActive;
     $("searchInput").value = "";
     setStatus(t("ready"));
     render();
     if (active === "maintenance") refreshMaintenance();
+    if (active === "runtime") refreshRuntime();
   });
 });
 
@@ -1726,6 +2031,12 @@ $("exportBackupBtn").addEventListener("click", exportBackup);
 $("importBackupBtn").addEventListener("click", chooseBackupFile);
 $("backupFileInput").addEventListener("change", importBackupFromFile);
 $("updateRulesBtn").addEventListener("click", updateRuleSets);
+$("runtimeView").addEventListener("change", () => {
+  stopRuntimePolling();
+  render();
+  if ($("runtimeView").value !== "logs") stopRuntimeLogs(false);
+  refreshRuntime();
+});
 $("brandLink").addEventListener("click", goNodes);
 $("brandLink").addEventListener("keydown", (event) => {
   if (event.key === "Enter" || event.key === " ") {

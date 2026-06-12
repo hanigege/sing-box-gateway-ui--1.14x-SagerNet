@@ -8,10 +8,9 @@ INSTALL_DIR="/opt/singbox-rule-ui"
 CONFIG_DIR="/etc/sing-box"
 MANAGER_DIR="$CONFIG_DIR/manager"
 RULE_DIR="$CONFIG_DIR/custom-rules"
-CLASH_UI_DIR="$CONFIG_DIR/ui"
 INSTALL_STATE_FILE="$MANAGER_DIR/install-state"
 RADVD_STATE_FILE="$MANAGER_DIR/radvd-state.before-sing-box"
-APT_PACKAGES=(curl ca-certificates tar gzip unzip python3 nftables iproute2 rsync util-linux)
+APT_PACKAGES=(curl ca-certificates tar gzip python3 nftables iproute2 rsync util-linux)
 PROXY_PREFIX="${SING_BOX_GATEWAY_PROXY_PREFIX:-https://scg.jgaga.tk/}"
 PROXY_PREFIXES="${SING_BOX_GATEWAY_PROXY_PREFIXES:-${PROXY_PREFIX},https://gh-proxy.com/,https://gh.llkk.cc/}"
 
@@ -141,47 +140,6 @@ choose_sing_box_runtime() {
   SING_BOX_ARCH="$(ask "CPU architecture: auto/amd64/arm64" "$SING_BOX_ARCH")"
 }
 
-download_urls() {
-  local url="$1" prefix
-  case "$url" in
-    https://*) ;;
-    *) printf "%s\n" "$url"; return ;;
-  esac
-  IFS=',' read -ra prefixes <<< "$PROXY_PREFIXES"
-  for prefix in "${prefixes[@]}"; do
-    [ -n "$prefix" ] || continue
-    printf "%s%s\n" "$prefix" "$url"
-  done
-  printf "%s\n" "$url"
-}
-
-curl_first() {
-  local output="$1"
-  shift
-  local url
-  for url in "$@"; do
-    echo "尝试下载: $url"
-    if curl -fL --connect-timeout 10 --max-time 180 "$url" -o "$output"; then
-      return 0
-    fi
-  done
-  return 1
-}
-
-curl_text_first() {
-  local url tmp
-  tmp="$(mktemp)"
-  for url in "$@"; do
-    if curl -fsSL --connect-timeout 10 --max-time 60 "$url" -o "$tmp" 2>/dev/null; then
-      cat "$tmp"
-      rm -f "$tmp"
-      return 0
-    fi
-  done
-  rm -f "$tmp"
-  return 1
-}
-
 install_sing_box() {
   if command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
     echo "sing-box already installed: $(/usr/local/bin/sing-box version | head -n 1)"
@@ -229,28 +187,6 @@ install_files() {
   install -m 0644 "$PROJECT_DIR/systemd/sing-box-tproxy.service" /etc/systemd/system/sing-box-tproxy.service
   # 清理旧版 helper；旧脚本会无条件写入 radvd.conf 并启动 RA 广播。
   rm -f /usr/local/sbin/refresh-sing-box-tproxy-setup
-}
-
-install_clash_ui() {
-  mkdir -p "$CLASH_UI_DIR"
-  tmp="$(mktemp -d)"
-  api_url="https://api.github.com/repos/Zephyruso/zashboard/releases/latest"
-  api_urls=($(download_urls "$api_url"))
-  if asset_url="$(curl_text_first "${api_urls[@]}" \
-      | python3 -c 'import json,sys; assets=json.load(sys.stdin)["assets"]; print(next(item["browser_download_url"] for item in assets if item["name"] == "dist.zip"))')" \
-    && asset_urls=($(download_urls "$asset_url")) \
-    && curl_first "$tmp/zashboard.zip" "${asset_urls[@]}"; then
-    unzip -oq "$tmp/zashboard.zip" -d "$tmp/zashboard"
-    if [ -d "$tmp/zashboard/dist" ]; then
-      rsync -a --delete "$tmp/zashboard/dist/" "$CLASH_UI_DIR/"
-    else
-      rsync -a --delete "$tmp/zashboard/" "$CLASH_UI_DIR/"
-    fi
-    echo "zashboard installed to $CLASH_UI_DIR"
-  else
-    echo "WARN: zashboard download failed; sing-box will still run, and port 9090 API remains available." >&2
-  fi
-  rm -rf "$tmp"
 }
 
 bootstrap_config() {
@@ -455,7 +391,6 @@ main() {
   install_files
   bootstrap_config
   install_sing_box
-  install_clash_ui
   install_initial_rules
   disable_unrequested_radvd
   install_tproxy_setup

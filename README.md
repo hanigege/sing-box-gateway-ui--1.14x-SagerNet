@@ -1,6 +1,6 @@
 # sing-box-gateway-ui
 
-`sing-box-gateway-ui` 是一个面向旁路代理/旁路网关场景的一键安装项目，集成 `sing-box`、TProxy、分流规则自动更新、规则管理 UI 和 9090 Clash API 面板。
+`sing-box-gateway-ui` 是一个面向旁路代理/旁路网关场景的一键安装项目，集成 `sing-box`、TProxy、分流规则自动更新、规则管理 UI 和受 token 保护的运行状态面板。
 
 设计目标是：**高效、简洁、sing-box 不死**。所有配置保存、规则更新和 TProxy 同步都应先检查、可回滚，避免因为错误输入导致正在运行的 `sing-box` 无法启动。
 
@@ -14,15 +14,11 @@
 
 ![Rule UI nodes](docs/images/rule-ui-nodes.png)
 
-9090 zashboard 面板：
-
-![zashboard](docs/images/zashboard.jpg)
-
 ## 功能
 
 - 一键安装 `sing-box` 二进制、systemd 服务、TProxy 和 Web UI
 - 默认使用仓库内置并验证过的 `sing-box 1.13.13`，同时包含 `amd64` 和 `arm64`
-- 规则 UI 管理白名单、黑名单、灰名单、DDNS 和代理节点
+- 9091 规则 UI 管理白名单、黑名单、灰名单、DDNS、代理节点、实时连接、日志和运行规则
 - 保存前执行 `sing-box check`，失败不覆盖正式配置
 - 重启失败自动回滚上一份可用配置
 - 节点页点击“设为默认”会立即保存、检查、重启并校验运行态；Auto 默认每 30 秒自动测速并重选可用节点，显示当前选中的实际节点，并在 urltest 选中节点变化时中断旧连接，避免继续粘在失效节点上
@@ -34,7 +30,7 @@
 - 安装器默认不把系统 DNS 指向本机、不广播 IPv6 网关，并会停止、mask 已存在但未显式启用的 `radvd`
 - 分流规则定时更新，下载失败保留旧文件
 - 维护页展示规则更新、TProxy、服务状态和节点服务器解析结果
-- 内置 9090 Clash API 和 zashboard 静态面板
+- 9090 Clash API 仅作为 9091 后端的内部运行态数据源，不再安装独立 zashboard 静态面板
 - `sing-box-gateway-info` 一键查看访问地址和密钥
 
 ## 透明网关 sysctl
@@ -85,7 +81,7 @@ curl -fsSL https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-
 curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/scripts/quick-install.sh | sudo bash
 ```
 
-安装器只使用仓库自带并验证过的 `sing-box 1.13.13`，不提供自动下载上游最新版，避免 sing-box 配置语法变化导致安装后无法启动。项目源码和 zashboard 下载会优先尝试反代地址，失败后再尝试 GitHub 官方地址。
+安装器只使用仓库自带并验证过的 `sing-box 1.13.13`，不提供自动下载上游最新版，避免 sing-box 配置语法变化导致安装后无法启动。项目源码下载会优先尝试反代地址，失败后再尝试 GitHub 官方地址。
 
 安装器会交互式询问：
 
@@ -119,6 +115,8 @@ curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/s
 - 自定义规则文件：`/etc/sing-box/custom-rules/`
 - TProxy 脚本：`/usr/local/sbin/sing-box-tproxy-setup`
 - TProxy sysctl：`/etc/sysctl.d/99-sing-box-tproxy.conf`
+
+客户端 DNS 进入 sing-box 后，国内直连域名会交给 `local-dns` 解析。`local-dns` 默认使用 DNSPod UDP：`119.29.29.29:53`。如果这个上游在某个网络不可用，可以手动回退到阿里 `223.5.5.5:53`。当前内置 sing-box 版本的 DNS 规则只能把一次查询路由到一个 DNS server tag，不提供多个上游并发择快或自动备用的 DNS 组；因此默认不会把 `223.5.5.5`、`119.29.29.29` 或其它上游伪装成“并发最快/自动备份”，避免配置看起来生效但实际没有并发或备用。
 
 代理节点添加后，sing-box 机器本机的 DNS 不必须指向自己。更稳的做法通常是让宿主机继续使用原来的上游 DNS，例如 Cloud-Init、前端软路由、内网 DNS 或运营商 DNS；这样 sing-box 自己解析代理节点域名时不会形成自我依赖。
 
@@ -230,7 +228,7 @@ SING_BOX_ARCH=arm64 sudo bash scripts/install.sh
 
 ## 一键卸载
 
-默认卸载会尽量恢复到安装前状态：停止并禁用本项目服务，清理 TProxy nft/routing 运行规则，按安装前记录恢复 `radvd` 状态，并删除本项目安装的 UI、systemd 单元、辅助脚本、运行配置、规则缓存、zashboard 文件和 `/etc/sing-box`。如果 `/usr/local/bin/sing-box` 或 apt 依赖包是本安装器新增的，也会一起删除；如果安装前已经存在，则默认保留，避免误删用户原有程序或系统基础包。
+默认卸载会尽量恢复到安装前状态：停止并禁用本项目服务，清理 TProxy nft/routing 运行规则，按安装前记录恢复 `radvd` 状态，并删除本项目安装的 UI、systemd 单元、辅助脚本、运行配置、规则缓存和 `/etc/sing-box`。如果 `/usr/local/bin/sing-box` 或 apt 依赖包是本安装器新增的，也会一起删除；如果安装前已经存在，则默认保留，避免误删用户原有程序或系统基础包。
 
 卸载脚本不会处理 `systemd-resolved` 的 53 端口设置。安装时如果为了释放 53 写入了 `DNSStubListener=no`，卸载时会保持这个保护状态，不改回 `yes`，也不重启 `systemd-resolved`。
 
@@ -271,7 +269,7 @@ sudo bash scripts/install.sh purge
 
 ## 访问入口
 
-安装完成后会输出规则 UI token 和 9090 控制面板 secret。忘记也没关系，在网关机器上运行：
+安装完成后会输出 9091 规则 UI token 和 9090 Clash API secret。忘记也没关系，在网关机器上运行：
 
 ```bash
 sing-box-gateway-info
@@ -281,8 +279,9 @@ sing-box-gateway-info
 
 ```text
 http://<网关IP>:9091/
-http://<网关IP>:9090/ui/
 ```
+
+9090 Clash API 保留给 9091 后端读取连接、日志和运行规则；浏览器日常管理只需要进入 9091，并使用同一个 Rule UI token 登录。
 
 ## 服务
 

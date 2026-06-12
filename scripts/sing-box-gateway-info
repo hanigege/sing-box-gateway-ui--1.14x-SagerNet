@@ -48,10 +48,8 @@ else:
     print("Rule UI:        http://<gateway-ip>:9091/")
 print(f"Rule UI token:  {token or '<missing>'}")
 if display_controller:
-    print(f"Clash UI:       http://{display_controller}/ui/")
     print(f"Clash API:      http://{display_controller}")
 else:
-    print("Clash UI:       http://<gateway-ip>:9090/ui/")
     print("Clash API:      http://<gateway-ip>:9090")
 print(f"Clash secret:   {secret or '<missing>'}")
 print()

@@ -14,6 +14,13 @@ TAGS = {
     "greylist": "custom-greylist",
     "ddns": "custom-ddns",
 }
+LOCAL_DNS_SERVER = {
+    "tag": "local-dns",
+    "type": "udp",
+    "server": "119.29.29.29",
+    "server_port": 53,
+    # 国内直连域名优先使用 DNSPod UDP，当前 sing-box 版本没有 DNS 上游并发/自动备用组；223.5.5.5 只作为手动回退参考，不能伪装成自动备份。
+}
 
 
 def stamp():
@@ -133,12 +140,28 @@ def ensure_dns_rules(config):
         dns_rules.insert(2, inbound_rule)
 
 
+def ensure_local_dns_server(config):
+    servers = config.setdefault("dns", {}).setdefault("servers", [])
+    target = None
+    for server in servers:
+        if isinstance(server, dict) and server.get("tag") == "local-dns":
+            target = server
+            break
+    if target is None:
+        servers.append(json.loads(json.dumps(LOCAL_DNS_SERVER)))
+        return
+    target.clear()
+    # 旧安装可能仍是 223.5.5.5 或不可用 DoH；集成时收敛到实测可用的 DNSPod UDP，避免本地规则继续走错误上游。
+    target.update(json.loads(json.dumps(LOCAL_DNS_SERVER)))
+
+
 def main():
     ensure_rule_files()
     config = load_config()
     before = json.dumps(config, sort_keys=True)
     ensure_route_rule_set(config)
     ensure_route_rules(config)
+    ensure_local_dns_server(config)
     ensure_dns_rules(config)
     after = json.dumps(config, sort_keys=True)
     if before == after:
