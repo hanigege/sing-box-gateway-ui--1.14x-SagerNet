@@ -126,6 +126,10 @@
               <span data-i18n="fakeipV6">IPv6 range</span>
               <input id="fakeipV6" type="text" autocomplete="off" placeholder="2001:2::/64" />
             </label>
+            <label class="checkline fakeip-toggle wide-field">
+              <input id="fakeipIpv6Enabled" type="checkbox" checked />
+              <span data-i18n="fakeipIpv6Enabled">Enable IPv6 FakeIP / AAAA</span>
+            </label>
             <div class="policy-note wide-field">
               <strong data-i18n="fakeipQuicPolicy">FakeIP QUIC protection is always on</strong>
               <small data-i18n="fakeipQuicPolicyHelp">UDP/443 to FakeIP ranges is blocked so browsers fall back to TCP and proxy latency stays stable.</small>

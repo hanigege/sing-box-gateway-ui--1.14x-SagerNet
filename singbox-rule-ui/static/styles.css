@@ -427,6 +427,18 @@ input[type="checkbox"] {
   min-height: 16px;
 }
 
+.fakeip-toggle {
+  grid-column: 1 / -1;
+  min-height: 36px;
+  align-items: center;
+}
+
+.compact-settings .fakeip-toggle {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+}
+
 .match-help {
   display: grid;
   gap: 6px;

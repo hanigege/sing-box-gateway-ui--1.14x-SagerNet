@@ -183,6 +183,7 @@ const translations = {
     fakeipNote: "Match this range with the upstream router.",
     fakeipV4: "IPv4 range",
     fakeipV6: "IPv6 range",
+    fakeipIpv6Enabled: "Enable IPv6 FakeIP / AAAA",
     fakeipQuicPolicy: "FakeIP QUIC protection is always on",
     fakeipQuicPolicyHelp: "UDP/443 to FakeIP ranges is blocked so browsers fall back to TCP, reducing QUIC long connections that can occupy proxy bandwidth and connection tracking. Real game and voice UDP are not affected.",
     editingNode: "Editing node",
@@ -410,6 +411,7 @@ const translations = {
     fakeipNote: "需要和前端软路由里的 FakeIP 网段保持一致",
     fakeipV4: "IPv4 网段",
     fakeipV6: "IPv6 网段",
+    fakeipIpv6Enabled: "启用 IPv6 FakeIP / AAAA",
     fakeipQuicPolicy: "FakeIP QUIC 保护固定开启",
     fakeipQuicPolicyHelp: "系统会固定拦截发往 FakeIP 网段的 UDP/443，让浏览器回落到 TCP，减少 QUIC 长连接占满代理带宽和连接表；真实游戏/语音 UDP 不受影响。",
     editingNode: "正在编辑节点",
@@ -1581,6 +1583,7 @@ function renderNodes() {
   renderLocalDnsSettings();
   if (document.activeElement !== $("fakeipV4")) $("fakeipV4").value = state.groups.fakeip.inet4_range || "28.0.0.0/8";
   if (document.activeElement !== $("fakeipV6")) $("fakeipV6").value = state.groups.fakeip.inet6_range || "2001:2::/64";
+  $("fakeipIpv6Enabled").checked = state.groups.fakeip.ipv6_enabled !== false;
   $("nodeTitle").textContent = t("nodes");
   $("nodeSummary").textContent = editingNodeTag
     ? `${t("editingNode")}: ${editingNodeTag}`
@@ -2161,6 +2164,7 @@ function syncNodeSettingsFromForm() {
   state.groups.fakeip = state.groups.fakeip || {};
   state.groups.fakeip.inet4_range = $("fakeipV4").value.trim();
   state.groups.fakeip.inet6_range = $("fakeipV6").value.trim();
+  state.groups.fakeip.ipv6_enabled = $("fakeipIpv6Enabled").checked;
   state.groups.fakeip.block_quic = true;
   state.groups.proxy = state.groups.proxy || {};
   if (!$("proxyDefault").classList.contains("hidden") && $("proxyDefault").value) {
@@ -2178,7 +2182,7 @@ function syncDraftSettings() {
   syncNodeSettingsFromForm();
 }
 
-["autoUrl", "autoInterval", "autoTolerance", "fakeipV4", "fakeipV6"].forEach((id) => {
+["autoUrl", "autoInterval", "autoTolerance", "fakeipV4", "fakeipV6", "fakeipIpv6Enabled"].forEach((id) => {
   $(id).addEventListener("input", syncNodeSettingsChanged);
   $(id).addEventListener("change", syncNodeSettingsChanged);
 });

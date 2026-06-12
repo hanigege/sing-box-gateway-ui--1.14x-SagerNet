@@ -435,7 +435,16 @@ def extract_initial_manager_data(config):
         },
         "direct": direct or {"type": "direct", "tag": "direct"},
         "block": block or {"type": "block", "tag": "block"},
-        "fakeip": {**{"tag": "fakeip-dns", "inet4_range": "28.0.0.0/8", "inet6_range": "2001:2::/64", "block_quic": True}, **fakeip},
+        "fakeip": {
+            **{
+                "tag": "fakeip-dns",
+                "inet4_range": "28.0.0.0/8",
+                "inet6_range": "2001:2::/64",
+                "ipv6_enabled": True,
+                "block_quic": True,
+            },
+            **fakeip,
+        },
         "dns": {"local": local_dns_choice},
         "ddns": {"dns": "local"},
     }
@@ -482,6 +491,8 @@ def load_groups():
     groups["fakeip"].setdefault("tag", "fakeip-dns")
     groups["fakeip"].setdefault("inet4_range", "28.0.0.0/8")
     groups["fakeip"].setdefault("inet6_range", "2001:2::/64")
+    groups["fakeip"].setdefault("ipv6_enabled", True)
+    groups["fakeip"]["ipv6_enabled"] = normalize_bool(groups["fakeip"]["ipv6_enabled"])
     # FakeIP QUIC 保护固定开启，避免旧备份或旧 UI 状态把稳定性边界关掉。
     groups["fakeip"]["block_quic"] = True
     if groups["dns"].get("local") not in LOCAL_DNS_CHOICES:
@@ -511,8 +522,8 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR):
     apply_local_dns_settings(config, groups)
     apply_fakeip_settings(config, groups)
     apply_blacklist_dns_reject(config)
-    apply_greylist_dns_fakeip(config)
-    apply_inbound_dns_fakeip_fallback(config)
+    apply_greylist_dns_fakeip(config, groups)
+    apply_inbound_dns_fakeip_fallback(config, groups)
     apply_ddns_dns_settings(config, groups)
     apply_fakeip_route_rule(config, groups)
     apply_direct_speedtest_route(config)
@@ -983,7 +994,8 @@ def apply_blacklist_dns_reject(config):
     dns_rules.insert(0, {"rule_set": CUSTOM_TAGS["blacklist"], "action": "reject"})
 
 
-def apply_greylist_dns_fakeip(config):
+def apply_greylist_dns_fakeip(config, groups=None):
+    query_types = fakeip_query_types(groups)
     dns_rules = config.setdefault("dns", {}).setdefault("rules", [])
     dns_rules[:] = [
         rule
@@ -1001,21 +1013,28 @@ def apply_greylist_dns_fakeip(config):
             "action": "route",
             "server": "fakeip-dns",
             "rewrite_ttl": 60,
-            "query_type": ["A", "AAAA"],
+            "query_type": query_types,
         },
     )
 
 
-def apply_inbound_dns_fakeip_fallback(config):
+def fakeip_query_types(groups=None):
+    fakeip = (groups or load_groups()).get("fakeip", {})
+    return ["A", "AAAA"] if normalize_bool(fakeip.get("ipv6_enabled", True)) else ["A"]
+
+
+def apply_inbound_dns_fakeip_fallback(config, groups=None):
+    query_types = fakeip_query_types(groups)
     dns_rules = config.setdefault("dns", {}).setdefault("rules", [])
     dns_inbounds = dns_inbound_tags(config)
+    normalize_lan_fakeip_query_types(dns_rules, dns_inbounds, query_types)
     dns_rules[:] = [
         rule
         for rule in dns_rules
         if not (
             isinstance(rule, dict)
             and same_inbound(rule.get("inbound"), dns_inbounds)
-            and rule.get("query_type") == ["A", "AAAA"]
+            and rule.get("query_type") in (["A"], ["A", "AAAA"])
             and rule.get("action") == "route"
             and rule.get("server") in ("remote-dns", "fakeip-dns")
             and "rule_set" not in rule
@@ -1029,12 +1048,46 @@ def apply_inbound_dns_fakeip_fallback(config):
         insert_at,
         {
             "inbound": dns_inbounds,
-            "query_type": ["A", "AAAA"],
+            "query_type": query_types,
             "action": "route",
             "server": "fakeip-dns",
             "rewrite_ttl": 60,
         },
     )
+    apply_lan_aaaa_reject(config, dns_inbounds, enabled=query_types == ["A"])
+
+
+def normalize_lan_fakeip_query_types(dns_rules, dns_inbounds, query_types):
+    for rule in dns_rules:
+        if (
+            isinstance(rule, dict)
+            and same_inbound(rule.get("inbound"), dns_inbounds)
+            and rule.get("server") == "fakeip-dns"
+            and rule.get("query_type") in (["A"], ["A", "AAAA"])
+        ):
+            # 所有 LAN 入站的 FakeIP 规则必须共用同一查询类型；否则旧 geosite 规则会在 AAAA 拒绝前返回 IPv6 FakeIP。
+            rule["query_type"] = query_types
+
+
+def apply_lan_aaaa_reject(config, dns_inbounds, enabled):
+    dns_rules = config.setdefault("dns", {}).setdefault("rules", [])
+    dns_rules[:] = [
+        rule
+        for rule in dns_rules
+        if not is_lan_aaaa_reject_rule(rule)
+    ]
+    if not enabled:
+        return
+    insert_at = 0
+    for index, rule in enumerate(dns_rules):
+        if isinstance(rule, dict) and same_inbound(rule.get("inbound"), dns_inbounds):
+            insert_at = index + 1
+    # 关闭 IPv6 FakeIP 时，LAN 入站的 AAAA 必须明确拒绝，避免客户端拿到真实 IPv6 后绕过 IPv4 代理路径。
+    dns_rules.insert(insert_at, {"inbound": dns_inbounds, "query_type": ["AAAA"], "action": "reject"})
+
+
+def is_lan_aaaa_reject_rule(rule):
+    return isinstance(rule, dict) and rule.get("query_type") == ["AAAA"] and rule.get("action") == "reject" and "inbound" in rule
 
 
 def dns_inbound_tags(config):
@@ -2204,6 +2257,7 @@ def normalize_payload_groups(raw_groups, nodes=None):
                 groups["fakeip"]["inet6_range"],
                 strict=True,
             )
+            groups["fakeip"]["ipv6_enabled"] = normalize_bool(fakeip.get("ipv6_enabled", groups["fakeip"].get("ipv6_enabled", True)))
             # FakeIP QUIC 保护是网关稳定边界：关闭会让浏览器 QUIC 长连接压住代理链路和连接表。
             groups["fakeip"]["block_quic"] = True
         dns = raw_groups.get("dns")

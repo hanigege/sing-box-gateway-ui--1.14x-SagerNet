@@ -222,6 +222,8 @@ AAAA -> 2001:db8:1234:1001::xxxx
 
 国内域名则仍应返回真实国内 IPv4/IPv6 地址。这样既能保留 FakeIP 分流，又能让支持 IPv6 的客户端优先走 IPv6 FakeIP。
 
+如果需要排查运营商或前端软路由 IPv6 带来的延迟、绕路问题，可以在 Rule UI 的 FakeIP 区域关闭“启用 IPv6 FakeIP / AAAA”。关闭后，LAN DNS 入站只会给国外域名返回 IPv4 FakeIP 的 A 记录，并明确拒绝 AAAA，避免客户端拿到真实 IPv6 或 IPv6 FakeIP 后绕过 IPv4 代理路径。这个开关不会关闭网关机自身 IPv6、不会修改 RouterOS IPv6 配置，也不会删除 TProxy 里已有的 IPv6 兜底规则。
+
 如需指定架构：
 
 ```bash
