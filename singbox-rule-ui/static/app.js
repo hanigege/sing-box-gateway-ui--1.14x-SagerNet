@@ -720,22 +720,26 @@ async function refreshDnsDelays(options = {}) {
 async function loadProxyInfo(testDelay = false) {
   try {
     const result = await api(testDelay ? "/api/delays?test=1" : "/api/proxy");
-    if (result.proxy) {
-      runtimeProxy = {
-        now: result.proxy.ok ? result.proxy.data?.now || null : null,
-        autoNow: result.proxy.ok ? result.proxy.data?.autoNow || null : null,
-        autoError: result.proxy.ok ? result.proxy.data?.autoError || "" : "",
-        available: Boolean(result.proxy.ok),
-        error: result.proxy.ok ? "" : result.proxy.error,
-      };
-    }
-    const delayPayload = result.delays?.delays || {};
-    delays = { ...delays, ...delayPayload };
+    applyProxyPayload(result);
     return result;
   } catch (error) {
     runtimeProxy = { now: null, available: false, error: error.message };
     return null;
   }
+}
+
+function applyProxyPayload(result) {
+  if (result.proxy) {
+    runtimeProxy = {
+      now: result.proxy.ok ? result.proxy.data?.now || null : null,
+      autoNow: result.proxy.ok ? result.proxy.data?.autoNow || null : null,
+      autoError: result.proxy.ok ? result.proxy.data?.autoError || "" : "",
+      available: Boolean(result.proxy.ok),
+      error: result.proxy.ok ? "" : result.proxy.error,
+    };
+  }
+  const delayPayload = result.delays?.delays || {};
+  delays = { ...delays, ...delayPayload };
 }
 
 function applyLanguage() {
@@ -1534,8 +1538,10 @@ async function importBackupFromFile(event) {
     });
     state = result.state;
     maintenance = result.maintenance || maintenance;
+    // 导入成功后以后端刚重启并测速得到的运行态为准，避免旧缓存或空 history 把节点显示成未检测。
     runtimeProxy = { now: null, available: false };
     delays = {};
+    applyProxyPayload(result);
     setDirty(false);
     render();
     if (result.tproxySync && result.tproxySync.code !== 0) {
@@ -1546,7 +1552,7 @@ async function importBackupFromFile(event) {
     finishActionButton("importBackupBtn", "actionDone", "done", "importBackup");
     setStatus(t("backupImported"), "ok");
     window.alert(t("backupImportedAlert"));
-    loadProxyInfo(false).then(() => render()).catch(() => {});
+    if (!result.delays) loadProxyInfo(false).then(() => render()).catch(() => {});
   } catch (error) {
     finishActionButton("importBackupBtn", "actionFailed", "failed", "importBackup");
     setStatus(error.message || t("backupImportFailed"), "bad");

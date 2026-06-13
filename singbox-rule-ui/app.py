@@ -2318,6 +2318,10 @@ def refresh_proxy_delays():
     return {"available": api_error is None, "error": api_error, "delays": values, "autoProbe": auto_probe}
 
 
+def current_proxy_payload(test_delays=False):
+    return {"proxy": get_proxy_state(), "delays": get_node_delays(test=test_delays)}
+
+
 def get_node_delays(test=False):
     if test:
         return refresh_proxy_delays()
@@ -2616,6 +2620,8 @@ def import_backup_payload(payload):
             "tproxySync": None,
         }
     tproxy_sync = sync_tproxy(nodes=nodes, groups=groups, normalized_lists=normalized_lists)
+    # 备份导入会重建节点和重启 sing-box，旧 history 不能代表新运行态；成功后立即测速，避免 UI 把可用节点显示成未检测。
+    proxy_payload = current_proxy_payload(test_delays=True)
     return {
         "ok": True,
         "error": "",
@@ -2624,6 +2630,7 @@ def import_backup_payload(payload):
         "restart": restart,
         "rollback": rollback,
         "tproxySync": tproxy_sync,
+        **proxy_payload,
     }
 
 
