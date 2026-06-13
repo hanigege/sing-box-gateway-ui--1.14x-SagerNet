@@ -1,5 +1,7 @@
 # sing-box-gateway-ui
 
+> **醒目说明：本小白网关仓库固定使用 `sing-box 1.13.13` 正式版，不使用 latest 或上游自动升级版本。**
+
 `sing-box-gateway-ui` 是一个面向旁路代理/旁路网关场景的一键安装项目，集成 `sing-box`、TProxy、分流规则自动更新、规则管理 UI 和受 token 保护的运行状态面板。
 
 设计目标是：**高效、简洁、sing-box 不死**。所有配置保存、规则更新和 TProxy 同步都应先检查、可回滚，避免因为错误输入导致正在运行的 `sing-box` 无法启动。

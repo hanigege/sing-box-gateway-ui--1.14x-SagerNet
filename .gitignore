@@ -7,4 +7,4 @@ dist/
 build/
 secrets/
 *.token
-
+AGENTS.md
