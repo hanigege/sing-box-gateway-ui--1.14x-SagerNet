@@ -132,8 +132,9 @@ const translations = {
     maintenanceNote: "Rule-set updates and TProxy status",
     backupTitle: "Backup and restore",
     backupNote: "Export or restore the UI-managed rules, nodes, and routing settings.",
+    maintenanceOverview: "Maintenance overview",
     ruleUpdateTitle: "Rule-set updates",
-    ruleUpdateDetails: "Update details",
+    ruleUpdateDetails: "Rule update details",
     updatedRules: "Updated",
     keptRules: "Optional cache",
     skippedRules: "Skipped",
@@ -371,8 +372,9 @@ const translations = {
     maintenanceNote: "规则集更新与 TProxy 状态",
     backupTitle: "备份与恢复",
     backupNote: "导出或恢复 UI 管理的规则、节点和分流设置。",
+    maintenanceOverview: "维护概览",
     ruleUpdateTitle: "分流规则更新",
-    ruleUpdateDetails: "更新明细",
+    ruleUpdateDetails: "规则更新明细",
     updatedRules: "已更新",
     keptRules: "可选规则缓存",
     skippedRules: "已跳过",
@@ -391,7 +393,7 @@ const translations = {
     tproxyTitle: "TProxy 旁路网关",
     nextUpdate: "下次自动更新",
     lastUpdate: "上次触发",
-    updateResult: "结果",
+    updateResult: "更新结果",
     updateScript: "脚本",
     timerStatus: "定时器",
     tproxyService: "TProxy 服务",
@@ -540,6 +542,39 @@ function updateButtons() {
   $("updateRulesBtn").disabled = busy;
   $("saveBtn").disabled = busy || !dirty;
   $("nodeSubmit").disabled = busy || Boolean(editingNodeTag && !nodeEditChanged);
+  const scheduleSave = $("saveRuleScheduleBtn");
+  if (scheduleSave) scheduleSave.disabled = busy || !ruleScheduleChanged();
+}
+
+function currentRuleScheduleForm() {
+  const frequency = $("ruleScheduleFrequencyInput");
+  const timeInput = $("ruleScheduleTimeInput");
+  const delayInput = $("ruleScheduleDelayInput");
+  if (!frequency || !timeInput || !delayInput) return null;
+  const [hour = "", minute = ""] = timeInput.value.split(":");
+  return {
+    frequency: frequency.value,
+    hour: Number(hour),
+    minute: Number(minute),
+    randomizedDelayHours: Number(delayInput.value),
+  };
+}
+
+function ruleScheduleChanged() {
+  const current = currentRuleScheduleForm();
+  if (!current) return false;
+  return ruleScheduleChangedFor(maintenance?.ruleUpdate?.schedule || {});
+}
+
+function ruleScheduleChangedFor(schedule) {
+  const current = currentRuleScheduleForm();
+  if (!current) return false;
+  return (
+    current.frequency !== (schedule.frequency || "weekly") ||
+    current.hour !== (Number.isInteger(schedule.hour) ? schedule.hour : 4) ||
+    current.minute !== (Number.isInteger(schedule.minute) ? schedule.minute : 20) ||
+    current.randomizedDelayHours !== (Number.isInteger(schedule.randomizedDelayHours) ? schedule.randomizedDelayHours : 2)
+  );
 }
 
 function setActionButton(id, textKey, tone = "") {
@@ -920,13 +955,18 @@ function renderRuleUpdateSchedule(schedule = {}) {
   delayInput.step = "1";
   delayInput.value = Number.isInteger(schedule.randomizedDelayHours) ? String(schedule.randomizedDelayHours) : "2";
   delayLabel.append(delayText, delayInput);
+  for (const control of [frequency, timeInput, delayInput]) {
+    // 自动更新时间是独立的 systemd timer 配置，输入变化要立即反映保存状态，避免用户误以为无法保存。
+    control.addEventListener("input", updateButtons);
+    control.addEventListener("change", updateButtons);
+  }
 
   form.append(frequencyLabel, timeLabel, delayLabel);
   const save = document.createElement("button");
   save.id = "saveRuleScheduleBtn";
   save.type = "button";
   save.textContent = t("saveRuleSchedule");
-  save.disabled = busy;
+  save.disabled = busy || !ruleScheduleChangedFor(schedule);
   save.addEventListener("click", saveRuleUpdateSchedule);
   form.appendChild(save);
 
@@ -960,6 +1000,27 @@ function renderMaintenanceCard(titleText, items, note = "") {
     warning.textContent = note;
     card.appendChild(warning);
   }
+  return card;
+}
+
+function renderMaintenanceOverview(items) {
+  const card = document.createElement("section");
+  card.className = "maintenance-overview-card";
+  const title = document.createElement("h3");
+  title.textContent = t("maintenanceOverview");
+  const grid = document.createElement("div");
+  grid.className = "maintenance-overview-grid";
+  for (const item of items) {
+    const tile = document.createElement("div");
+    tile.className = `maintenance-overview-tile ${item[2] || ""}`.trim();
+    const label = document.createElement("span");
+    label.textContent = item[0];
+    const value = document.createElement("strong");
+    value.textContent = formatMaintenanceValue(item[1]);
+    tile.append(label, value);
+    grid.appendChild(tile);
+  }
+  card.append(title, grid);
   return card;
 }
 
@@ -1001,7 +1062,10 @@ function renderMaintenanceDetails(titleText, items, note = "") {
   const details = document.createElement("details");
   details.className = "maintenance-details";
   const summary = document.createElement("summary");
-  summary.textContent = titleText;
+  const title = document.createElement("span");
+  title.className = "maintenance-summary-title";
+  title.textContent = titleText;
+  summary.appendChild(title);
   details.appendChild(summary);
   const body = document.createElement("div");
   body.className = "maintenance-details-body";
@@ -1027,19 +1091,12 @@ function renderMaintenance() {
   const rows = $("maintenanceRows");
   rows.innerHTML = "";
   rows.appendChild(renderRuleUpdateSchedule(rule.schedule || {}));
-  rows.appendChild(renderMaintenanceCard(t("ruleUpdateTitle"), [
-    [t("timerStatus"), rule.timerActive, statusTone(rule.timerActive)],
-    [t("nextUpdate"), rule.next],
-    [t("lastUpdate"), rule.last],
-    [t("updateResult"), rule.result || rule.serviceState, statusTone(rule.result || rule.serviceState)],
-    [t("updateScript"), rule.scriptExists ? rule.script : t("unknown"), rule.scriptExists ? "good" : "bad"],
-  ]));
   const summary = rule.summary || {};
   const hasDetails = Boolean((summary.updated || []).length || (summary.kept || []).length || (summary.skipped || []).length || (summary.errors || []).length || summary.final);
   const keptCount = (summary.kept || []).length;
   const errorCount = (summary.errors || []).length;
   const finalTone = errorCount ? "bad" : isRuleCacheSafe(summary) ? "warn" : summary.requiredOk ? "good" : summary.final ? "soft" : "";
-  rows.appendChild(renderMaintenanceCard(t("ruleUpdateDetails"), hasDetails ? [
+  const ruleDetailItems = hasDetails ? [
     [t("finalResult"), formatRuleFinal(summary), finalTone],
     [t("updatedCount"), String((summary.updated || []).length), "good"],
     [t("optionalCount"), keptCount ? `${keptCount} · ${ruleNames(summary.kept)}` : "0", keptCount ? "soft" : "good"],
@@ -1047,20 +1104,35 @@ function renderMaintenance() {
     [t("errorDetails"), errorCount ? compactRuleMessages(summary.errors) : "0", errorCount ? "bad" : "good"],
   ] : [
     [t("ruleUpdateDetails"), t("noUpdateDetails")],
+  ];
+
+  const updateResult = rule.result || rule.serviceState;
+
+  rows.appendChild(renderMaintenanceOverview([
+    [t("updateResult"), updateResult, statusTone(updateResult)],
+    [t("updatedCount"), String((summary.updated || []).length), "good"],
+    [t("tproxyService"), tproxy.serviceActive, statusTone(tproxy.serviceActive)],
+    [t("nextUpdate"), rule.next],
   ]));
-  rows.appendChild(renderMaintenanceCard(t("tproxySummaryTitle"), [
+
+  // 维护页按折叠分组纵向排列，标题只保留箭头和名称，避免右侧状态字干扰扫读。
+  rows.appendChild(renderMaintenanceDetails(t("tproxyDetailsTitle"), [
     [t("tproxyService"), tproxy.serviceActive, statusTone(tproxy.serviceActive)],
     [t("defaultInterface"), tproxy.defaultInterface],
     [t("currentIpv4Prefix"), tproxy.currentIpv4Prefixes],
     [t("currentIpv6Prefix"), tproxy.currentIpv6Prefixes],
     [t("fakeipRanges"), [tproxy.planned?.fakeip4, tproxy.planned?.fakeip6].filter(Boolean)],
     [t("nodeServerIps"), formatNodeServers(tproxy.outboundServers) || tproxy.outboundServerIps],
-  ]));
-  rows.appendChild(renderMaintenanceDetails(t("tproxyDetailsTitle"), [
     [t("scriptIpv6Prefix"), tproxy.scriptIpv6Prefixes, tproxy.ipv6PrefixMatches ? "good" : "warn"],
     [t("plannedBypass4"), tproxy.planned?.bypass4],
     [t("plannedBypass6"), tproxy.planned?.bypass6],
   ], `${t("tproxyPolicy")}${tproxy.ipv6PrefixMatches === false ? ` ${t("prefixMismatch")}` : ""}`));
+  rows.appendChild(renderMaintenanceDetails(t("ruleUpdateTitle"), [
+    [t("nextUpdate"), rule.next],
+    [t("lastUpdate"), rule.last],
+    [t("updateScript"), rule.scriptExists ? rule.script : t("unknown"), rule.scriptExists ? "good" : "bad"],
+  ]));
+  rows.appendChild(renderMaintenanceDetails(t("ruleUpdateDetails"), ruleDetailItems));
 }
 
 function formatBytes(value) {

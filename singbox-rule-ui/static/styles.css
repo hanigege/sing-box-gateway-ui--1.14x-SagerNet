@@ -640,9 +640,9 @@ input[type="checkbox"] {
 
 .maintenance-rows {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  grid-template-columns: 1fr;
   align-items: start;
-  gap: 10px;
+  gap: 12px;
 }
 
 .runtime-tools {
@@ -1020,42 +1020,146 @@ input[type="checkbox"] {
 
 .maintenance-card {
   display: grid;
-  gap: 8px;
+  align-content: start;
+  gap: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfcfd;
   padding: 12px;
+}
+
+.maintenance-overview-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+  padding: 14px;
+}
+
+.maintenance-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.maintenance-overview-tile {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  min-height: 96px;
+  border: 1px solid rgba(60, 60, 67, 0.18);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcfd 100%);
+  padding: 12px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.92) inset,
+    0 10px 22px rgba(29, 29, 31, 0.06);
+}
+
+.maintenance-overview-tile span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.maintenance-overview-tile strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 22px;
+  font-weight: 850;
+  line-height: 1.15;
+}
+
+.maintenance-overview-tile.good strong {
+  color: var(--ok);
+}
+
+.maintenance-overview-tile.good {
+  border-color: rgba(52, 199, 89, 0.28);
+}
+
+.maintenance-overview-tile.warn strong {
+  color: var(--warm);
+}
+
+.maintenance-overview-tile.warn {
+  border-color: rgba(255, 149, 0, 0.3);
+}
+
+.maintenance-overview-tile.bad strong {
+  color: var(--danger);
+}
+
+.maintenance-overview-tile.bad {
+  border-color: rgba(255, 59, 48, 0.3);
+}
+
+.maintenance-overview-tile.soft strong {
+  color: #4f6f87;
+}
+
+.maintenance-overview-tile.soft {
+  border-color: rgba(79, 111, 135, 0.28);
 }
 
 .maintenance-details {
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfcfd;
-  padding: 12px;
+  padding: 14px;
 }
 
 .maintenance-details summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
   cursor: pointer;
   color: var(--text);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 850;
+  line-height: 1.25;
+  list-style: none;
+}
+
+.maintenance-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.maintenance-details summary::before {
+  content: "▸";
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.maintenance-details[open] summary::before {
+  content: "▾";
+}
+
+.maintenance-summary-title {
+  min-width: 0;
 }
 
 .maintenance-details-body {
   display: grid;
-  gap: 8px;
-  margin-top: 10px;
+  gap: 10px;
+  margin-top: 14px;
 }
 
 .maintenance-item {
   display: grid;
-  grid-template-columns: 128px 1fr;
-  align-items: center;
-  gap: 10px;
-  min-height: 36px;
+  grid-template-columns: minmax(112px, 0.42fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  min-height: 40px;
   border-radius: 7px;
   background: #ffffff;
-  padding: 7px 9px;
+  padding: 9px 10px;
 }
 
 .maintenance-item span {
@@ -1066,7 +1170,7 @@ input[type="checkbox"] {
 
 .maintenance-item strong {
   min-width: 0;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
   color: var(--text);
   font-size: 12px;
   font-weight: 750;
@@ -1355,6 +1459,15 @@ input[type="checkbox"] {
   .rule-schedule-panel,
   .rule-schedule-form {
     grid-template-columns: 1fr;
+  }
+
+  .maintenance-overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .maintenance-item {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 
   .ddns-mode {
