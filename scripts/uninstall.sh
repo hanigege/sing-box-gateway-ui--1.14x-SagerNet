@@ -129,8 +129,14 @@ remove_generated_radvd_files() {
 }
 
 remove_sing_box_binary_if_owned() {
+  local owner backup
   owner="$(state_value sing_box_binary "$INSTALL_STATE_FILE")"
-  if [ "$owner" = "installed" ] || { [ "$owner" = "" ] && [ "$PURGE" = "1" ]; }; then
+  backup="$(state_value sing_box_binary_backup "$INSTALL_STATE_FILE")"
+  if [ "$owner" = "replaced" ] && [ -n "$backup" ] && [ -x "$backup" ]; then
+    # 升级替换过旧 sing-box 时，卸载应恢复原二进制，不能把用户原有运行入口直接删掉。
+    install -m 0755 "$backup" /usr/local/bin/sing-box
+    rm -f "$backup"
+  elif [ "$owner" = "installed" ] || { [ "$owner" = "" ] && [ "$PURGE" = "1" ]; }; then
     rm -f /usr/local/bin/sing-box
   fi
 }

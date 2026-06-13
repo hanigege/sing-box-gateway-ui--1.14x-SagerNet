@@ -2,6 +2,8 @@
 Description=Sing-box custom rule web UI
 After=network-online.target sing-box.service
 Wants=network-online.target
+# 禁用启动限速，避免 UI 连续异常后失去管理和回滚入口。
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -10,7 +12,8 @@ WorkingDirectory=/opt/singbox-rule-ui
 Environment=RULE_UI_HOST=0.0.0.0
 Environment=RULE_UI_PORT=9091
 ExecStart=/usr/bin/python3 /opt/singbox-rule-ui/app.py
-Restart=on-failure
+# UI 是恢复和回滚入口；持续重启可以保证 sing-box 异常时仍能进入管理面板处理配置。
+Restart=always
 RestartSec=3
 
 [Install]

@@ -842,6 +842,8 @@ def apply_cache_file_settings(config):
     cache = config.setdefault("experimental", {}).setdefault("cache_file", {})
     cache["enabled"] = True
     cache["store_fakeip"] = True
+    # 1.14 的 DNS 缓存需要显式持久化，避免重启后 Clash API/UI 读取到的 DNS 运行态抖动。
+    cache["store_dns"] = True
 
 
 def apply_portable_listeners(config):

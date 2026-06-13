@@ -1,6 +1,6 @@
 # sing-box-gateway-ui
 
-> **醒目说明：本小白网关仓库固定使用 `sing-box 1.13.13` 正式版，不使用 latest 或上游自动升级版本。**
+> **醒目说明：本小白网关仓库固定使用 `sing-box 1.14.0-alpha.31` 官方预发布版，不使用 latest 或上游自动升级版本。**
 
 `sing-box-gateway-ui` 是一个面向旁路代理/旁路网关场景的一键安装项目，集成 `sing-box`、TProxy、分流规则自动更新、规则管理 UI 和受 token 保护的运行状态面板。
 
@@ -19,10 +19,12 @@
 ## 功能
 
 - 一键安装 `sing-box` 二进制、systemd 服务、TProxy 和 Web UI
-- 默认使用仓库内置并验证过的 `sing-box 1.13.13`，同时包含 `amd64` 和 `arm64`
+- 默认使用仓库内置并验证过的 `sing-box 1.14.0-alpha.31`，同时包含 `amd64` 和 `arm64`
+- 已安装旧版 `/usr/local/bin/sing-box` 时会先备份再替换，避免 1.13 二进制继续运行 1.14 配置
 - 9091 规则 UI 管理白名单、黑名单、灰名单、DDNS、代理节点、实时连接、日志和运行规则
 - 保存前执行 `sing-box check`，失败不覆盖正式配置
 - 重启失败自动回滚上一份可用配置
+- `sing-box.service` 和 Rule UI 使用 systemd 持续重启策略，避免核心进程退出后无人拉起
 - 节点页点击“设为默认”会立即保存、检查、重启并校验运行态；Auto 默认每 30 秒自动测速并重选可用节点，显示当前选中的实际节点，并在 urltest 选中节点变化时中断旧连接，避免继续粘在失效节点上
 - DDNS 可选择本地 DNS 或经代理节点访问的远程 DNS
 - TProxy 自动检测默认网卡、本机网段和 IPv6 前缀
@@ -66,7 +68,7 @@ net.ipv6.conf.eth0.accept_ra_defrtr=1
 当前安装器面向 apt 系 Linux：
 
 - Debian 12/13
-- Ubuntu 22.04/24.04/25.04
+- Ubuntu 22.04 及以后版本，包括 22.04/24.04/25.04
 
 需要 root 权限。
 
@@ -75,16 +77,22 @@ net.ipv6.conf.eth0.accept_ra_defrtr=1
 推荐使用反代入口，适合新机器还没有代理环境、GitHub DNS 可能被污染的情况：
 
 ```bash
-curl -fsSL https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui/main/scripts/quick-install.sh | sudo bash
+curl -fsSL https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh | sudo bash
 ```
 
 如果当前机器直连 GitHub 稳定，也可以使用官方入口：
 
 ```bash
-curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/scripts/quick-install.sh | sudo bash
+curl -fsSL https://github.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/raw/refs/heads/main/scripts/quick-install.sh | sudo bash
 ```
 
-安装器只使用仓库自带并验证过的 `sing-box 1.13.13`，不提供自动下载上游最新版，避免 sing-box 配置语法变化导致安装后无法启动。项目源码下载会优先尝试反代地址，失败后再尝试 GitHub 官方地址。
+安装器只使用仓库自带并验证过的 `sing-box 1.14.0-alpha.31`，不提供自动下载 latest。这样升级目标可追踪，避免上游配置语法继续变化导致安装后无法启动。项目源码下载会优先尝试反代地址，失败后再尝试 GitHub 官方地址。
+
+如果机器上已有 `/usr/local/bin/sing-box`，安装器会检查版本；不是 `1.14.0-alpha.31` 时会先备份为 `/usr/local/bin/sing-box.bak-gateway-<时间>`，再安装仓库内置二进制。这个备份只作为人工回滚入口，正常运行仍以仓库验证过的 1.14.0-alpha.31 为准。
+
+已经安装过本项目 1.13.13 的机器可以直接运行本安装器覆盖升级。安装器会保留 `/etc/sing-box/manager/` 里的节点、分组、规则和 Rule UI token，只用新版本 UI 渲染 1.14 配置，并在启用服务前执行 `sing-box check`。如果机器只有旧 `/etc/sing-box/config.json` 而没有 manager 数据，安装器会先从现有配置提取节点和分组再升级。生产机升级前仍建议先在 Rule UI 导出备份，便于人工回滚。
+
+覆盖升级不会一上来就替换正在服务的 `/usr/local/bin/sing-box`。安装器会先解包仓库内置的 1.14.0-alpha.31 到临时目录，继续让旧服务保持运行；规则下载、配置迁移和 `sing-box check` 都用临时 1.14 二进制预检。全部通过后，才在最后短窗口备份并替换正式二进制、重启服务，降低生产机依赖当前代理出口时的断网风险。
 
 安装器会交互式询问：
 
@@ -236,24 +244,26 @@ SING_BOX_ARCH=arm64 sudo bash scripts/install.sh
 
 默认卸载会尽量恢复到安装前状态：停止并禁用本项目服务，清理 TProxy nft/routing 运行规则，按安装前记录恢复 `radvd` 状态，并删除本项目安装的 UI、systemd 单元、辅助脚本、运行配置、规则缓存和 `/etc/sing-box`。如果 `/usr/local/bin/sing-box` 或 apt 依赖包是本安装器新增的，也会一起删除；如果安装前已经存在，则默认保留，避免误删用户原有程序或系统基础包。
 
+如果安装时为了升级 1.14.0-alpha.31 替换过旧 `/usr/local/bin/sing-box`，卸载会优先把备份的旧二进制恢复回原路径。只有 purge 或安装状态无法证明归属时，才会按提示删除 `/usr/local/bin/sing-box`。
+
 卸载脚本不会处理 `systemd-resolved` 的 53 端口设置。安装时如果为了释放 53 写入了 `DNSStubListener=no`，卸载时会保持这个保护状态，不改回 `yes`，也不重启 `systemd-resolved`。
 
 新版本安装器会在 `/etc/sing-box/manager/install-state` 记录安装前状态，用于卸载时判断哪些文件和依赖可以安全删除。老版本安装没有这份记录时，卸载仍会清理本项目路径和服务，但不会猜测删除安装前状态不明的系统组件。
 
 ```bash
-curl -fsSL https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui/main/scripts/quick-install.sh | sudo bash -s uninstall
+curl -fsSL https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh | sudo bash -s uninstall
 ```
 
 如果没有安装状态记录，但你仍然确认要删除 `/usr/local/bin/sing-box`，可以使用 purge：
 
 ```bash
-curl -fsSL https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui/main/scripts/quick-install.sh | sudo bash -s purge
+curl -fsSL https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh | sudo bash -s purge
 ```
 
 直连 GitHub 稳定时也可以使用官方 purge 入口：
 
 ```bash
-curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/scripts/quick-install.sh | sudo bash -s purge
+curl -fsSL https://github.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/raw/refs/heads/main/scripts/quick-install.sh | sudo bash -s purge
 ```
 
 ## Git 安装
@@ -261,8 +271,8 @@ curl -fsSL https://github.com/hanigege/sing-box-gateway-ui/raw/refs/heads/main/s
 适合想修改脚本或参与开发的用户：
 
 ```bash
-git clone https://github.com/hanigege/sing-box-gateway-ui.git
-cd sing-box-gateway-ui
+git clone https://github.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet.git
+cd sing-box-gateway-ui--1.14x-SagerNet
 sudo bash scripts/install.sh
 ```
 

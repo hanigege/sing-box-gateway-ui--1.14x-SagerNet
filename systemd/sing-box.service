@@ -3,14 +3,17 @@ Description=sing-box service
 Documentation=https://sing-box.sagernet.org
 After=network-online.target sing-box-tproxy.service
 Wants=network-online.target
+# 禁用 systemd 启动限速，避免连续异常后服务进入不再自动拉起的状态。
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 ExecStartPre=/usr/local/sbin/refresh-sing-box-runtime-config
 ExecStart=/usr/local/bin/sing-box run -c /etc/sing-box/config.json
 ExecReload=/bin/kill -HUP $MAINPID
-Restart=on-failure
-RestartSec=5
+# 网关核心进程必须持续拉起；正常退出也重启，避免偶发退出后 LAN 侧 DNS/TProxy 长时间失效。
+Restart=always
+RestartSec=2
 LimitNOFILE=infinity
 
 [Install]

@@ -67,6 +67,31 @@ def write_json(path, data):
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def ensure_rule_ui_token():
+    token_path = CONFIG_DIR / "rule-ui" / "token"
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    if not token_path.exists() or not token_path.read_text(encoding="utf-8").strip():
+        # 升级旧系统时必须保留已有 token；只有缺失时才补发，避免用户原登录入口失效。
+        token_path.write_text(secrets.token_urlsafe(32) + "\n", encoding="utf-8")
+        token_path.chmod(0o600)
+
+
+def migrate_existing_install():
+    if not CONFIG_PATH.exists():
+        return False
+    import sys
+    sys.path.insert(0, "/opt/singbox-rule-ui")
+    from app import RULE_DIR as APP_RULE_DIR, ensure_manager_data, load_groups, load_nodes, render_config
+
+    # 发现旧配置时走升级路径：从现有 config/manager 中提取节点和分组，不能重建模板节点覆盖现场。
+    ensure_manager_data()
+    ensure_rule_ui_token()
+    config = render_config(nodes=load_nodes(), groups=load_groups(), rule_dir=APP_RULE_DIR)
+    write_json(CONFIG_PATH, config)
+    print(f"Upgraded existing sing-box manager data and rendered {CONFIG_PATH}")
+    return True
+
+
 def node_from_prompt(index, default_type):
     node_type = ask(f"Node {index} type: hysteria2 or vless", default_type)
     if node_type not in {"hysteria2", "vless"}:
@@ -250,7 +275,8 @@ def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
             "final": "direct",
         },
         "experimental": {
-            "cache_file": {"enabled": True, "store_fakeip": True},
+            # 1.14 运行态依赖 FakeIP 与 DNS 缓存持久化；不要只保留 store_fakeip。
+            "cache_file": {"enabled": True, "store_fakeip": True, "store_dns": True},
             "clash_api": {
                 "external_controller": f"{lan_ip}:9090",
                 "secret": ui_secret,
@@ -264,6 +290,8 @@ def main():
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     MANAGER_DIR.mkdir(parents=True, exist_ok=True)
     RULE_DIR.mkdir(parents=True, exist_ok=True)
+    if migrate_existing_install():
+        return
     simple_mode = ask_yes_no("Use simple mode? Start first, edit nodes and advanced options later in UI.", True)
     lan_ip = ask("LAN IPv4 address for sing-box/UI", default_lan_ip())
     if simple_mode:
@@ -305,10 +333,7 @@ def main():
     write_json(BASE_CONFIG_PATH, base)
     write_json(NODES_PATH, nodes)
     write_json(GROUPS_PATH, groups)
-    token_path = CONFIG_DIR / "rule-ui" / "token"
-    token_path.parent.mkdir(parents=True, exist_ok=True)
-    token_path.write_text(secrets.token_urlsafe(32) + "\n", encoding="utf-8")
-    token_path.chmod(0o600)
+    ensure_rule_ui_token()
     import sys
     sys.path.insert(0, "/opt/singbox-rule-ui")
     from app import render_config

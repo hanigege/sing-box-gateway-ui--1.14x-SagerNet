@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="${SING_BOX_GATEWAY_REPO:-hanigege/sing-box-gateway-ui}"
+REPO="${SING_BOX_GATEWAY_REPO:-hanigege/sing-box-gateway-ui--1.14x-SagerNet}"
 REF="${SING_BOX_GATEWAY_REF:-main}"
 ACTION="${1:-install}"
 PROXY_PREFIX="${SING_BOX_GATEWAY_PROXY_PREFIX:-https://scg.jgaga.tk/}"

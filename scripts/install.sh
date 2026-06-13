@@ -2,8 +2,10 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SING_BOX_BUNDLED_VERSION="${SING_BOX_BUNDLED_VERSION:-1.13.13}"
+SING_BOX_BUNDLED_VERSION="${SING_BOX_BUNDLED_VERSION:-1.14.0-alpha.31}"
 SING_BOX_ARCH="${SING_BOX_ARCH:-auto}"
+SING_BOX_PREPARED_BINARY=""
+SING_BOX_PREPARED_TMP=""
 INSTALL_DIR="/opt/singbox-rule-ui"
 CONFIG_DIR="/etc/sing-box"
 MANAGER_DIR="$CONFIG_DIR/manager"
@@ -110,6 +112,59 @@ detect_arch() {
   esac
 }
 
+sing_box_archive_path() {
+  local arch="$1"
+  printf "%s/third_party/sing-box/v%s/sing-box-%s-linux-%s.tar.gz\n" "$PROJECT_DIR" "$SING_BOX_BUNDLED_VERSION" "$SING_BOX_BUNDLED_VERSION" "$arch"
+}
+
+sing_box_sums_path() {
+  printf "%s/third_party/sing-box/v%s/SHA256SUMS\n" "$PROJECT_DIR" "$SING_BOX_BUNDLED_VERSION"
+}
+
+verify_sing_box_archive() {
+  local archive="$1" sums="$2" archive_name expected actual
+  if [ ! -r "$archive" ]; then
+    echo "Bundled sing-box archive not found: $archive" >&2
+    exit 1
+  fi
+  if [ -r "$sums" ]; then
+    archive_name="$(basename "$archive")"
+    expected="$(awk -v name="$archive_name" '$2 == name { print $1 }' "$sums")"
+    if [ -z "$expected" ]; then
+      echo "No checksum entry for bundled archive: $archive_name" >&2
+      exit 1
+    fi
+    actual="$(sha256sum "$archive" | awk '{ print $1 }')"
+    if [ "$actual" != "$expected" ]; then
+      echo "Checksum mismatch for bundled archive: $archive_name" >&2
+      exit 1
+    fi
+  fi
+}
+
+cleanup_prepared_sing_box() {
+  if [ -n "${SING_BOX_PREPARED_TMP:-}" ]; then
+    rm -rf "$SING_BOX_PREPARED_TMP"
+  fi
+}
+
+prepare_sing_box_binary() {
+  local arch archive sums
+  arch="$(detect_arch)"
+  archive="$(sing_box_archive_path "$arch")"
+  sums="$(sing_box_sums_path)"
+  verify_sing_box_archive "$archive" "$sums"
+  SING_BOX_PREPARED_TMP="$(mktemp -d)"
+  trap cleanup_prepared_sing_box EXIT
+  tar -xzf "$archive" -C "$SING_BOX_PREPARED_TMP"
+  SING_BOX_PREPARED_BINARY="$(find "$SING_BOX_PREPARED_TMP" -path "*/sing-box" -type f | head -n 1)"
+  if [ -z "$SING_BOX_PREPARED_BINARY" ] || [ ! -x "$SING_BOX_PREPARED_BINARY" ]; then
+    echo "Prepared sing-box binary not found in bundled archive." >&2
+    exit 1
+  fi
+  echo "Prepared bundled sing-box ${SING_BOX_BUNDLED_VERSION} (${arch}) for preflight checks."
+}
+
 ask() {
   local prompt="$1" default="${2:-}" value suffix=""
   [ -n "$default" ] && suffix=" [$default]"
@@ -142,36 +197,33 @@ choose_sing_box_runtime() {
 }
 
 install_sing_box() {
-  if command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
-    echo "sing-box already installed: $(/usr/local/bin/sing-box version | head -n 1)"
-    return
-  fi
+  local arch current_version backup
   arch="$(detect_arch)"
-  archive="$PROJECT_DIR/third_party/sing-box/v${SING_BOX_BUNDLED_VERSION}/sing-box-${SING_BOX_BUNDLED_VERSION}-linux-${arch}.tar.gz"
-  sums="$PROJECT_DIR/third_party/sing-box/v${SING_BOX_BUNDLED_VERSION}/SHA256SUMS"
-  if [ ! -r "$archive" ]; then
-    echo "Bundled sing-box archive not found: $archive" >&2
-    exit 1
+  if [ -z "$SING_BOX_PREPARED_BINARY" ] || [ ! -x "$SING_BOX_PREPARED_BINARY" ]; then
+    prepare_sing_box_binary
   fi
-  if [ -r "$sums" ]; then
-    archive_name="$(basename "$archive")"
-    expected="$(awk -v name="$archive_name" '$2 == name { print $1 }' "$sums")"
-    if [ -z "$expected" ]; then
-      echo "No checksum entry for bundled archive: $archive_name" >&2
-      exit 1
+  if command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
+    current_version="$(/usr/local/bin/sing-box version 2>/dev/null | head -n 1 || true)"
+    if [ -n "$current_version" ] && printf "%s" "$current_version" | grep -q "$SING_BOX_BUNDLED_VERSION"; then
+      echo "sing-box already installed: $current_version"
+      state_set sing_box_bundled_version "$SING_BOX_BUNDLED_VERSION"
+      state_set sing_box_arch "$arch"
+      return
     fi
-    actual="$(sha256sum "$archive" | awk '{ print $1 }')"
-    if [ "$actual" != "$expected" ]; then
-      echo "Checksum mismatch for bundled archive: $archive_name" >&2
-      exit 1
-    fi
+    backup="/usr/local/bin/sing-box.bak-gateway-$(date +%Y%m%d-%H%M%S)"
+    # 旧 1.13 二进制必须替换成仓库验证过的 1.14 alpha.31；先备份，避免升级失败时丢失现场回滚入口。
+    cp -a /usr/local/bin/sing-box "$backup"
+    echo "Backed up existing sing-box to $backup"
+    state_set sing_box_binary replaced
+    state_set sing_box_binary_backup "$backup"
+  else
+    state_set sing_box_binary installed
   fi
-  tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  # 所有下载和配置检查已经用临时 1.14 二进制完成；这里只做最后的短窗口原子替换，降低生产断网时间。
   echo "Installing bundled sing-box ${SING_BOX_BUNDLED_VERSION} (${arch})"
-  tar -xzf "$archive" -C "$tmp"
-  install -m 0755 "$tmp"/sing-box-*/sing-box /usr/local/bin/sing-box
-  state_set sing_box_binary installed
+  install -m 0755 "$SING_BOX_PREPARED_BINARY" /usr/local/bin/sing-box
+  state_set sing_box_bundled_version "$SING_BOX_BUNDLED_VERSION"
+  state_set sing_box_arch "$arch"
 }
 
 install_files() {
@@ -208,7 +260,7 @@ bootstrap_config() {
 }
 
 install_initial_rules() {
-  RULE_UPDATE_RESTART=0 /usr/local/sbin/update-sing-box-rules-jsdelivr
+  SING_BOX="$SING_BOX_PREPARED_BINARY" RULE_UPDATE_RESTART=0 /usr/local/sbin/update-sing-box-rules-jsdelivr
 }
 
 port53_conflicts() {
@@ -404,13 +456,14 @@ main() {
   install_packages
   install_files
   configure_journald_limits
+  prepare_sing_box_binary
   bootstrap_config
-  install_sing_box
   install_initial_rules
   disable_unrequested_radvd
   install_tproxy_setup
   ensure_dns_port_available
-  /usr/local/bin/sing-box check -c /etc/sing-box/config.json
+  "$SING_BOX_PREPARED_BINARY" check -c /etc/sing-box/config.json
+  install_sing_box
   enable_services
   refresh_tproxy_after_start
   echo

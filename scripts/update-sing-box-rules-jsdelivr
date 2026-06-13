@@ -3,7 +3,7 @@ set -euo pipefail
 
 BASE_DIR="/etc/sing-box/rules"
 CONFIG="/etc/sing-box/config.json"
-SING_BOX="/usr/local/bin/sing-box"
+SING_BOX="${SING_BOX:-/usr/local/bin/sing-box}"
 SERVICE="sing-box.service"
 RESTART_SERVICE="${RULE_UPDATE_RESTART:-1}"
 FORCE_UPDATE="${RULE_UPDATE_FORCE:-0}"
