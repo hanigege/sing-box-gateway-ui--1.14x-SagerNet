@@ -1779,7 +1779,16 @@ def tproxy_proxy_ip_networks(nodes=None, groups=None, normalized_lists=None):
         if any(network.version == item.version and (network.subnet_of(item) or network.overlaps(item)) for item in protected):
             continue
         networks.append(network)
-    collapsed = sorted(ipaddress.collapse_addresses(networks), key=lambda net: (net.version, int(net.network_address), net.prefixlen))
+    return collapse_networks(networks)
+
+
+def collapse_networks(networks):
+    collapsed = []
+    for version in (4, 6):
+        # IPv4 和 IPv6 不能混在一次 collapse_addresses 里处理，否则混合灰名单会触发 not of the same version。
+        same_version = [network for network in networks if network.version == version]
+        collapsed.extend(ipaddress.collapse_addresses(same_version))
+    collapsed.sort(key=lambda net: (net.version, int(net.network_address), net.prefixlen))
     return [str(net) for net in collapsed]
 
 
@@ -1790,8 +1799,7 @@ def collapse_network_strings(items):
             networks.append(ipaddress.ip_network(item, strict=False))
         except ValueError:
             continue
-    collapsed = sorted(ipaddress.collapse_addresses(networks), key=lambda net: (net.version, int(net.network_address), net.prefixlen))
-    return [str(net) for net in collapsed]
+    return collapse_networks(networks)
 
 
 def tproxy_bypass_sets(nodes=None, groups=None, normalized_lists=None):
