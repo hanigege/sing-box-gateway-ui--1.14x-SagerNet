@@ -1,0 +1,9 @@
+[Unit]
+Description=Sing-box gateway runtime drift monitor
+Documentation=https://sing-box.sagernet.org
+After=network-online.target sing-box.service sing-box-tproxy.service singbox-rule-ui.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/sing-box-runtime-monitor

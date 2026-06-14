@@ -178,6 +178,10 @@ main() {
   echo "Stopping services..."
   run_systemctl disable --now update-sing-box-rules-jsdelivr.timer
   run_systemctl disable --now update-sing-box-rules-jsdelivr.service
+  run_systemctl disable --now sing-box-runtime-monitor.timer
+  run_systemctl disable --now sing-box-runtime-monitor.service
+  run_systemctl disable --now monitor-sing-box-runtime.timer
+  run_systemctl disable --now monitor-sing-box-runtime.service
   run_systemctl disable --now singbox-rule-ui.service
   run_systemctl disable --now sing-box.service
   run_systemctl disable --now sing-box-tproxy.service
@@ -191,10 +195,16 @@ main() {
     /etc/systemd/system/sing-box.service \
     /etc/systemd/system/sing-box-tproxy.service \
     /etc/systemd/system/singbox-rule-ui.service \
+    /etc/systemd/system/sing-box-runtime-monitor.service \
+    /etc/systemd/system/sing-box-runtime-monitor.timer \
+    /etc/systemd/system/monitor-sing-box-runtime.service \
+    /etc/systemd/system/monitor-sing-box-runtime.timer \
     /etc/systemd/system/update-sing-box-rules-jsdelivr.service \
     /etc/systemd/system/update-sing-box-rules-jsdelivr.timer \
     /usr/local/sbin/sing-box-tproxy-setup \
     /usr/local/sbin/refresh-sing-box-runtime-config \
+    /usr/local/sbin/sing-box-runtime-monitor \
+    /usr/local/sbin/monitor-sing-box-runtime \
     /usr/local/sbin/refresh-sing-box-tproxy-setup \
     /usr/local/sbin/update-sing-box-rules-jsdelivr \
     /usr/local/bin/sing-box-gateway-info \

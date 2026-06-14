@@ -232,14 +232,19 @@ install_files() {
   install -m 0755 "$PROJECT_DIR/scripts/sing-box-gateway-info" /usr/local/bin/sing-box-gateway-info
   install -m 0755 "$PROJECT_DIR/scripts/uninstall.sh" /usr/local/bin/sing-box-gateway-uninstall
   install -m 0755 "$PROJECT_DIR/scripts/refresh_runtime_config.py" /usr/local/sbin/refresh-sing-box-runtime-config
+  install -m 0755 "$PROJECT_DIR/scripts/runtime_monitor.py" /usr/local/sbin/sing-box-runtime-monitor
   install -m 0644 "$PROJECT_DIR/systemd/singbox-rule-ui.service" /etc/systemd/system/singbox-rule-ui.service
   install -m 0755 "$PROJECT_DIR/scripts/update-sing-box-rules-jsdelivr" /usr/local/sbin/update-sing-box-rules-jsdelivr
   install -m 0644 "$PROJECT_DIR/systemd/update-sing-box-rules-jsdelivr.service" /etc/systemd/system/update-sing-box-rules-jsdelivr.service
   install -m 0644 "$PROJECT_DIR/systemd/update-sing-box-rules-jsdelivr.timer" /etc/systemd/system/update-sing-box-rules-jsdelivr.timer
   install -m 0644 "$PROJECT_DIR/systemd/sing-box.service" /etc/systemd/system/sing-box.service
   install -m 0644 "$PROJECT_DIR/systemd/sing-box-tproxy.service" /etc/systemd/system/sing-box-tproxy.service
+  install -m 0644 "$PROJECT_DIR/systemd/sing-box-runtime-monitor.service" /etc/systemd/system/sing-box-runtime-monitor.service
+  install -m 0644 "$PROJECT_DIR/systemd/sing-box-runtime-monitor.timer" /etc/systemd/system/sing-box-runtime-monitor.timer
   # 清理旧版 helper；旧脚本会无条件写入 radvd.conf 并启动 RA 广播。
   rm -f /usr/local/sbin/refresh-sing-box-tproxy-setup
+  # 清理未仓库化的早期 runtime monitor，避免新旧两个 timer 重复修复同一批服务。
+  rm -f /usr/local/sbin/monitor-sing-box-runtime
 }
 
 configure_journald_limits() {
@@ -423,11 +428,14 @@ install_tproxy_setup() {
 }
 
 enable_services() {
+  systemctl disable --now monitor-sing-box-runtime.timer monitor-sing-box-runtime.service >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/monitor-sing-box-runtime.timer /etc/systemd/system/monitor-sing-box-runtime.service
   systemctl daemon-reload
   systemctl enable --now sing-box-tproxy.service
   systemctl enable --now sing-box.service
   systemctl enable --now singbox-rule-ui.service
   systemctl enable --now update-sing-box-rules-jsdelivr.timer
+  systemctl enable --now sing-box-runtime-monitor.timer
 }
 
 refresh_tproxy_after_start() {

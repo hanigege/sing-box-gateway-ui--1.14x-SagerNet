@@ -48,4 +48,5 @@ print("Service checks:")
 print("  systemctl status sing-box")
 print("  systemctl status sing-box-tproxy")
 print("  systemctl status singbox-rule-ui")
+print("  systemctl status sing-box-runtime-monitor.timer")
 PY

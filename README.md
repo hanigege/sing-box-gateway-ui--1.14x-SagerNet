@@ -25,6 +25,7 @@
 - 保存前执行 `sing-box check`，失败不覆盖正式配置
 - 重启失败自动回滚上一份可用配置
 - `sing-box.service` 和 Rule UI 使用 systemd 持续重启策略，避免核心进程退出后无人拉起
+- `sing-box-runtime-monitor.timer` 每 5 分钟轻量检查 LAN IPv4、默认网卡、IPv6 DNS 监听、TProxy 脚本和服务状态；只有发现漂移或服务掉线才刷新配置/重启对应服务
 - 节点页点击“设为默认”会立即保存、检查、重启并校验运行态；Auto 默认每 30 秒自动测速并重选可用节点，显示当前选中的实际节点，并在 urltest 选中节点变化时中断旧连接，避免继续粘在失效节点上
 - DDNS 可选择本地 DNS 或经代理节点访问的远程 DNS
 - TProxy 自动检测默认网卡、本机网段和 IPv6 前缀
@@ -127,6 +128,7 @@ curl -fsSL https://github.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/raw/r
 - 自定义规则文件：`/etc/sing-box/custom-rules/`
 - TProxy 脚本：`/usr/local/sbin/sing-box-tproxy-setup`
 - TProxy sysctl：`/etc/sysctl.d/99-sing-box-tproxy.conf`
+- 运行态监控：`/usr/local/sbin/sing-box-runtime-monitor`，由 `sing-box-runtime-monitor.timer` 触发；无环境变化时只记录检查结果，不重启服务
 
 客户端 DNS 进入 sing-box 后，国内直连域名会交给 `local-dns` 解析。`local-dns` 默认使用 DNSPod UDP：`119.29.29.29:53`。规则 UI 的节点页可以把国内 DNS 手动切换为 DNSPod `119.29.29.29`、阿里 `223.5.5.5` 或 114 DNS `114.114.114.114`，并可实时检测网关机到这些 DNS 的 UDP 查询延时，方便按当前网络环境选择。当前内置 sing-box 版本的 DNS 规则只能把一次查询路由到一个 DNS server tag，不提供多个上游并发择快或自动备用的 DNS 组；因此 UI 里的延时只用于辅助用户手动选择单个 `local-dns`，不会把多个上游伪装成“并发最快/自动备份”。
 
@@ -306,6 +308,7 @@ http://<网关IP>:9091/
 - `sing-box.service`
 - `sing-box-tproxy.service`
 - `singbox-rule-ui.service`
+- `sing-box-runtime-monitor.timer`
 - `update-sing-box-rules-jsdelivr.timer`
 
 常用检查命令：
@@ -314,7 +317,9 @@ http://<网关IP>:9091/
 systemctl status sing-box
 systemctl status sing-box-tproxy
 systemctl status singbox-rule-ui
+systemctl status sing-box-runtime-monitor.timer
 systemctl list-timers update-sing-box-rules-jsdelivr.timer
+systemctl list-timers sing-box-runtime-monitor.timer
 sing-box-gateway-info
 ```
 

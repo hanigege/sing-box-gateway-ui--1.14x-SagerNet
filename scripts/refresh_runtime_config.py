@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 import json
 import ipaddress
+import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
 CONFIG_PATH = Path("/etc/sing-box/config.json")
 APP_DIR = Path("/opt/singbox-rule-ui")
+SING_BOX_BIN = Path(os.environ.get("SING_BOX_BIN", "/usr/local/bin/sing-box"))
 
 
 def default_lan_ip():
@@ -137,6 +141,35 @@ def apply_runtime_listeners(config, lan_ip, ipv6_listen):
     return changed
 
 
+def validate_rendered_config(rendered):
+    if not SING_BOX_BIN.exists():
+        return
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as handle:
+        handle.write(rendered)
+        temp_path = Path(handle.name)
+    try:
+        result = subprocess.run([str(SING_BOX_BIN), "check", "-c", str(temp_path)], text=True, capture_output=True, timeout=20)
+        if result.returncode != 0:
+            message = result.stderr.strip() or result.stdout.strip() or "sing-box config check failed"
+            raise RuntimeError(message)
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def write_atomic(path, content):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=str(path.parent), delete=False) as handle:
+        handle.write(content)
+        temp_path = Path(handle.name)
+    try:
+        # 运行态刷新必须先校验再替换，避免 monitor 在网络抖动时把不可启动配置写进生产文件。
+        validate_rendered_config(content)
+        shutil.copymode(path, temp_path)
+        temp_path.replace(path)
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
 def main():
     if not CONFIG_PATH.exists():
         return 0
@@ -147,7 +180,7 @@ def main():
     listener_changed = apply_runtime_listeners(config, lan_ip, ipv6_listen)
     rendered = json.dumps(config, indent=2, ensure_ascii=False) + "\n"
     if rendered != previous:
-        CONFIG_PATH.write_text(rendered, encoding="utf-8")
+        write_atomic(CONFIG_PATH, rendered)
         print(f"Rendered sing-box config and updated listeners for {lan_ip}.")
     elif listener_changed:
         print(f"Updated sing-box listeners for {lan_ip}.")
