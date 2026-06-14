@@ -214,6 +214,14 @@ def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
                     "detour": "Proxy",
                 },
                 {
+                    "tag": "ddns-remote-dns",
+                    "type": "udp",
+                    "server": "1.1.1.1",
+                    "server_port": 53,
+                    "detour": "Proxy",
+                    # DDNS 代理解析使用独立 UDP 上游，不复用通用 remote-dns 的 DoH 长连接。
+                },
+                {
                     "tag": "local-dns",
                     "type": "udp",
                     "server": "119.29.29.29",

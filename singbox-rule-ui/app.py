@@ -69,6 +69,14 @@ LOCAL_DNS_SERVER = {
     "server_port": 53,
     # 国内直连域名只会路由到一个 local-dns；当前 sing-box 没有 DNS 并发/备用组，UI 只能明确选择单个上游。
 }
+DDNS_REMOTE_DNS_SERVER = {
+    "tag": "ddns-remote-dns",
+    "type": "udp",
+    "server": "1.1.1.1",
+    "server_port": 53,
+    "detour": "Proxy",
+    # DDNS 代理解析走独立 UDP 上游，避免复用通用 remote-dns 的 DoH 长连接导致直连 DDNS 域名解析假死。
+}
 LOCAL_DNS_CHOICES = {
     "dnspod": {"label": "DNSPod", "server": "119.29.29.29", "server_port": 53},
     "alidns": {"label": "AliDNS", "server": "223.5.5.5", "server_port": 53},
@@ -439,6 +447,12 @@ def extract_initial_manager_data(config):
         if isinstance(server, dict) and server.get("tag") == "local-dns":
             local_dns_choice = LOCAL_DNS_BY_SERVER.get(str(server.get("server", "")).strip(), DEFAULT_LOCAL_DNS_CHOICE)
             break
+    ddns_dns_mode = "local"
+    for rule in config.get("dns", {}).get("rules", []) or []:
+        if isinstance(rule, dict) and rule.get("rule_set") == CUSTOM_TAGS["ddns"]:
+            if rule.get("server") in ("ddns-remote-dns", "remote-dns"):
+                ddns_dns_mode = "remote"
+                break
     base = json.loads(json.dumps(config))
     base["outbounds"] = []
     groups = {
@@ -465,7 +479,7 @@ def extract_initial_manager_data(config):
             **fakeip,
         },
         "dns": {"local": local_dns_choice},
-        "ddns": {"dns": "local"},
+        "ddns": {"dns": ddns_dns_mode},
     }
     return base, normalize_nodes(nodes), groups
 
@@ -1009,6 +1023,21 @@ def apply_local_dns_settings(config, groups):
     target.update(desired)
 
 
+def apply_ddns_remote_dns_server(config):
+    servers = config.setdefault("dns", {}).setdefault("servers", [])
+    target = None
+    for server in servers:
+        if isinstance(server, dict) and server.get("tag") == DDNS_REMOTE_DNS_SERVER["tag"]:
+            target = server
+            break
+    if target is None:
+        servers.append(json.loads(json.dumps(DDNS_REMOTE_DNS_SERVER)))
+        return
+    target.clear()
+    # 保存时强制收敛 DDNS 专用代理解析上游，防止旧配置继续引用通用 DoH remote-dns。
+    target.update(json.loads(json.dumps(DDNS_REMOTE_DNS_SERVER)))
+
+
 def apply_blacklist_dns_reject(config):
     dns_rules = config.setdefault("dns", {}).setdefault("rules", [])
     dns_rules[:] = [
@@ -1160,7 +1189,9 @@ def same_inbound(value, tags):
 
 def apply_ddns_dns_settings(config, groups):
     mode = groups.get("ddns", {}).get("dns", "local")
-    server = "remote-dns" if mode == "remote" else "local-dns"
+    if mode == "remote":
+        apply_ddns_remote_dns_server(config)
+    server = "ddns-remote-dns" if mode == "remote" else "local-dns"
     dns_rules = config.setdefault("dns", {}).setdefault("rules", [])
     for rule in dns_rules:
         if isinstance(rule, dict) and rule.get("rule_set") == CUSTOM_TAGS["ddns"]:

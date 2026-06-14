@@ -21,6 +21,14 @@ LOCAL_DNS_SERVER = {
     "server_port": 53,
     # 国内直连域名优先使用 DNSPod UDP，当前 sing-box 版本没有 DNS 上游并发/自动备用组；223.5.5.5 只作为手动回退参考，不能伪装成自动备份。
 }
+DDNS_REMOTE_DNS_SERVER = {
+    "tag": "ddns-remote-dns",
+    "type": "udp",
+    "server": "1.1.1.1",
+    "server_port": 53,
+    "detour": "Proxy",
+    # DDNS 代理解析独立于通用 remote-dns，避免 DoH 旧连接拖慢直连 DDNS 域名解析。
+}
 
 
 def stamp():
@@ -166,6 +174,21 @@ def ensure_local_dns_server(config):
     target.update(json.loads(json.dumps(LOCAL_DNS_SERVER)))
 
 
+def ensure_ddns_remote_dns_server(config):
+    servers = config.setdefault("dns", {}).setdefault("servers", [])
+    target = None
+    for server in servers:
+        if isinstance(server, dict) and server.get("tag") == DDNS_REMOTE_DNS_SERVER["tag"]:
+            target = server
+            break
+    if target is None:
+        servers.append(json.loads(json.dumps(DDNS_REMOTE_DNS_SERVER)))
+        return
+    target.clear()
+    # 安装集成时同步修正 DDNS 专用代理解析上游，保证 UI 后续切到代理解析不会复用 remote-dns。
+    target.update(json.loads(json.dumps(DDNS_REMOTE_DNS_SERVER)))
+
+
 def main():
     ensure_rule_files()
     config = load_config()
@@ -173,6 +196,7 @@ def main():
     ensure_route_rule_set(config)
     ensure_route_rules(config)
     ensure_local_dns_server(config)
+    ensure_ddns_remote_dns_server(config)
     ensure_dns_rules(config)
     after = json.dumps(config, sort_keys=True)
     if before == after:
