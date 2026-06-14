@@ -62,6 +62,20 @@ CUSTOM_TAGS = {
     "ddns": "custom-ddns",
 }
 
+TELEGRAM_TPROXY_NETWORKS = (
+    "91.108.4.0/22",
+    "91.108.8.0/22",
+    "91.108.12.0/22",
+    "91.108.16.0/22",
+    "91.108.20.0/22",
+    "91.108.56.0/22",
+    "95.161.64.0/20",
+    "149.154.160.0/20",
+    "2001:67c:4e8::/48",
+    "2001:b28:f23c::/47",
+    "2001:b28:f23f::/48",
+)
+
 LOCAL_DNS_SERVER = {
     "tag": "local-dns",
     "type": "udp",
@@ -480,6 +494,7 @@ def extract_initial_manager_data(config):
         },
         "dns": {"local": local_dns_choice},
         "ddns": {"dns": ddns_dns_mode},
+        "telegram": {"capture_ip": True},
     }
     return base, normalize_nodes(nodes), groups
 
@@ -513,6 +528,7 @@ def load_groups():
     groups.setdefault("fakeip", {})
     groups.setdefault("dns", {})
     groups.setdefault("ddns", {})
+    groups.setdefault("telegram", {})
     groups["proxy"].setdefault("default", "Auto")
     groups["proxy"].setdefault("interrupt_exist_connections", True)
     groups["proxy"]["interrupt_exist_connections"] = normalize_bool(groups["proxy"]["interrupt_exist_connections"])
@@ -532,6 +548,8 @@ def load_groups():
         groups["dns"]["local"] = DEFAULT_LOCAL_DNS_CHOICE
     if groups["ddns"].get("dns") not in ("local", "remote"):
         groups["ddns"]["dns"] = "local"
+    groups["telegram"].setdefault("capture_ip", True)
+    groups["telegram"]["capture_ip"] = normalize_bool(groups["telegram"]["capture_ip"])
     return groups
 
 
@@ -1829,7 +1847,14 @@ def protected_tproxy_networks(nodes=None, groups=None):
 
 def tproxy_proxy_ip_networks(nodes=None, groups=None, normalized_lists=None):
     protected = protected_tproxy_networks(nodes=nodes, groups=groups)
+    settings = groups or load_groups()
     networks = []
+    if normalize_bool(settings.get("telegram", {}).get("capture_ip", True)):
+        for item in TELEGRAM_TPROXY_NETWORKS:
+            try:
+                networks.append(ipaddress.ip_network(item, strict=False))
+            except ValueError:
+                continue
     entries = (normalized_lists or {}).get("greylist") if normalized_lists is not None else read_entries("greylist")
     for entry in entries or []:
         if entry.get("type") != "ip_cidr":
@@ -1838,10 +1863,13 @@ def tproxy_proxy_ip_networks(nodes=None, groups=None, normalized_lists=None):
             network = ipaddress.ip_network(entry["value"], strict=False)
         except ValueError:
             continue
-        # 灰名单 IP/CIDR 只用于捕获明确外部目标；内网、本机前缀和节点服务器 IP 必须自动排除，避免误代理和回环。
-        if any(network.version == item.version and (network.subnet_of(item) or network.overlaps(item)) for item in protected):
-            continue
         networks.append(network)
+    # 灰名单 IP/CIDR 和 Telegram 内置公网段都会进入 TProxy；内网、本机前缀和节点服务器 IP 必须统一排除，避免误代理和回环。
+    networks = [
+        network
+        for network in networks
+        if not any(network.version == item.version and (network.subnet_of(item) or network.overlaps(item)) for item in protected)
+    ]
     return collapse_networks(networks)
 
 
@@ -1881,8 +1909,9 @@ def tproxy_bypass_sets(nodes=None, groups=None, normalized_lists=None):
         "bypass6": collapse_network_strings(bypass6),
         "fakeip4": fakeip4,
         "fakeip6": fakeip6,
-        "proxy4": collapse_network_strings(["91.108.4.0/22", "91.108.8.0/22", "91.108.12.0/22", "91.108.16.0/22", "91.108.20.0/22", "91.108.56.0/22", "95.161.64.0/20", "149.154.160.0/20", *[item for item in proxy_networks if ":" not in item]]),
-        "proxy6": collapse_network_strings(["2001:67c:4e8::/48", "2001:b28:f23c::/47", "2001:b28:f23f::/48", *[item for item in proxy_networks if ":" in item]]),
+        # 真实公网 IP 只捕获 UI 灰名单明确网段和 Telegram 内置公网段，其它公网地址继续按系统路由直连。
+        "proxy4": collapse_network_strings([item for item in proxy_networks if ":" not in item]),
+        "proxy6": collapse_network_strings([item for item in proxy_networks if ":" in item]),
         "nodeServerIpNetworks": node_networks,
         "nodeServers": resolved_outbound_servers(nodes, groups),
     }
@@ -1892,20 +1921,36 @@ def format_nft_elements(items, indent="      "):
     return ",\n".join(f"{indent}{item}" for item in items)
 
 
+def format_nft_set(name, address_type, items):
+    if not items:
+        # 空灰名单也要生成合法 set，避免 nft 解析空 elements 块时因版本差异失败。
+        return f"""  set {name} {{
+    type {address_type}
+    flags interval
+  }}"""
+    return f"""  set {name} {{
+    type {address_type}
+    flags interval
+    elements = {{
+{format_nft_elements(items)}
+    }}
+  }}"""
+
+
 def render_tproxy_script(nodes=None, groups=None, normalized_lists=None):
     sets = tproxy_bypass_sets(nodes=nodes, groups=groups, normalized_lists=normalized_lists)
     iface = sets["interface"]
     if not iface:
         raise ValueError("Cannot detect default network interface")
-    bypass4 = format_nft_elements(sets["bypass4"])
-    bypass6 = format_nft_elements(sets["bypass6"])
-    proxy4 = format_nft_elements(sets["proxy4"])
-    proxy6 = format_nft_elements(sets["proxy6"])
+    bypass4_set = format_nft_set("bypass4", "ipv4_addr", sets["bypass4"])
+    bypass6_set = format_nft_set("bypass6", "ipv6_addr", sets["bypass6"])
+    proxy4_set = format_nft_set("proxy4", "ipv4_addr", sets["proxy4"])
+    proxy6_set = format_nft_set("proxy6", "ipv6_addr", sets["proxy6"])
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 
 # Generated by Sing-box UI. LAN DNS port 53 is redirected to sing-box DNS.
-# Only FakeIP ranges are captured by TProxy; real IPv4/IPv6 destinations stay on the normal route.
+# TProxy captures FakeIP, explicit greylist IP/CIDR, and Telegram public ranges; other real public IPs stay on the normal route.
 
 IFACE={json.dumps(iface)}
 TPROXY_PORT={TPROXY_PORT}
@@ -1933,45 +1978,23 @@ nft -f - <<NFT
 add table inet singbox_tproxy
 
 table inet singbox_tproxy {{
-  set bypass4 {{
-    type ipv4_addr
-    flags interval
-    elements = {{
-{bypass4}
-    }}
-  }}
+{bypass4_set}
 
-  set bypass6 {{
-    type ipv6_addr
-    flags interval
-    elements = {{
-{bypass6}
-    }}
-  }}
+{bypass6_set}
 
-  set proxy4 {{
-    type ipv4_addr
-    flags interval
-    elements = {{
-{proxy4}
-    }}
-  }}
+{proxy4_set}
 
-  set proxy6 {{
-    type ipv6_addr
-    flags interval
-    elements = {{
-{proxy6}
-    }}
-  }}
+{proxy6_set}
 
   chain prerouting {{
     type filter hook prerouting priority mangle; policy accept;
 
-    # 本机进程访问 FakeIP 时，output 链只负责打标，策略路由回 lo 后在这里交给 sing-box。
-    # 只接管 FakeIP，不接管真实公网 IP，避免把节点服务器连接和 UI 测速流量卷回 TProxy。
+    # 本机进程访问 FakeIP/灰名单 IP 时，output 链只负责打标，策略路由回 lo 后在这里交给 sing-box。
+    # 真实公网 IP 只接管灰名单明确网段和 Telegram 固定段，节点服务器 IP 已在生成 proxy set 前排除，避免代理链路回环。
     iifname "lo" ip daddr {sets["fakeip4"]} meta l4proto {{ tcp, udp }} meta mark set "${{TPROXY_MARK}}" tproxy ip to :"${{TPROXY_PORT}}" accept
     iifname "lo" ip6 daddr {sets["fakeip6"]} meta l4proto {{ tcp, udp }} meta mark set "${{TPROXY_MARK}}" tproxy ip6 to :"${{TPROXY_PORT}}" accept
+    iifname "lo" ip daddr @proxy4 meta l4proto {{ tcp, udp }} meta mark set "${{TPROXY_MARK}}" tproxy ip to :"${{TPROXY_PORT}}" accept
+    iifname "lo" ip6 daddr @proxy6 meta l4proto {{ tcp, udp }} meta mark set "${{TPROXY_MARK}}" tproxy ip6 to :"${{TPROXY_PORT}}" accept
 
     iifname != "${{IFACE}}" return
     udp dport 53 return
@@ -1990,6 +2013,8 @@ table inet singbox_tproxy {{
     meta mark "${{TPROXY_MARK}}" return
     ip daddr {sets["fakeip4"]} meta l4proto {{ tcp, udp }} meta mark set "${{TPROXY_MARK}}" accept
     ip6 daddr {sets["fakeip6"]} meta l4proto {{ tcp, udp }} meta mark set "${{TPROXY_MARK}}" accept
+    ip daddr @proxy4 meta l4proto {{ tcp, udp }} meta mark set "${{TPROXY_MARK}}" accept
+    ip6 daddr @proxy6 meta l4proto {{ tcp, udp }} meta mark set "${{TPROXY_MARK}}" accept
   }}
 
   chain dns_hijack {{
@@ -2498,6 +2523,9 @@ def normalize_payload_groups(raw_groups, nodes=None):
             groups["fakeip"]["ipv6_enabled"] = normalize_bool(fakeip.get("ipv6_enabled", groups["fakeip"].get("ipv6_enabled", True)))
             # FakeIP QUIC 保护是网关稳定边界：关闭会让浏览器 QUIC 长连接压住代理链路和连接表。
             groups["fakeip"]["block_quic"] = True
+        telegram = raw_groups.get("telegram")
+        if isinstance(telegram, dict):
+            groups["telegram"]["capture_ip"] = normalize_bool(telegram.get("capture_ip", groups["telegram"].get("capture_ip", True)))
         dns = raw_groups.get("dns")
         if isinstance(dns, dict):
             local_dns = str(dns.get("local", groups["dns"].get("local", DEFAULT_LOCAL_DNS_CHOICE))).strip()

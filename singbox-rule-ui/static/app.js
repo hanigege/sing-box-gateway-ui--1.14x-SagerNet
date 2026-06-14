@@ -165,7 +165,7 @@ const translations = {
     plannedBypass6: "IPv6 destinations not intercepted",
     fakeipRanges: "FakeIP ranges",
     nodeServerIps: "Node server addresses",
-    tproxyPolicy: "LAN/private and node server IPs bypass TProxy. LAN DNS port 53 is redirected to sing-box DNS. FakeIP ranges are captured by TProxy and handled by sing-box.",
+    tproxyPolicy: "LAN/private and node server IPs bypass TProxy. LAN DNS port 53 is redirected to sing-box DNS. TProxy captures FakeIP, greylist IP/CIDR, and Telegram public ranges when enabled; other real public IPs stay on the normal route.",
     prefixMismatch: "IPv6 bypass prefix should be regenerated for this host.",
     healthy: "OK",
     unknown: "Unknown",
@@ -195,6 +195,7 @@ const translations = {
     fakeipV4: "IPv4 range",
     fakeipV6: "IPv6 range",
     fakeipIpv6Enabled: "Enable IPv6 FakeIP / AAAA",
+    telegramCaptureIp: "Capture Telegram official IP ranges",
     fakeipQuicPolicy: "FakeIP QUIC protection is always on",
     fakeipQuicPolicyHelp: "UDP/443 to FakeIP ranges is blocked so browsers fall back to TCP, reducing QUIC long connections that can occupy proxy bandwidth and connection tracking. Real game and voice UDP are not affected.",
     editingNode: "Editing node",
@@ -405,7 +406,7 @@ const translations = {
     plannedBypass6: "不接管的 IPv6 目标",
     fakeipRanges: "FakeIP 网段",
     nodeServerIps: "节点服务器地址",
-    tproxyPolicy: "内网/本机网段和节点服务器 IP 会绕过 TProxy；LAN 进来的 53 端口 DNS 会被劫回 sing-box；FakeIP 网段不会绕过，会交给 sing-box 分流。",
+    tproxyPolicy: "内网/本机网段和节点服务器 IP 会绕过 TProxy；LAN 进来的 53 端口 DNS 会被劫回 sing-box；TProxy 会捕获 FakeIP、灰名单 IP/CIDR，以及开关启用时的 Telegram 固定公网段，其它真实公网 IP 按系统路由直连。",
     prefixMismatch: "IPv6 绕过前缀和当前机器不一致，打包安装时应自动生成。",
     healthy: "正常",
     unknown: "未知",
@@ -435,6 +436,7 @@ const translations = {
     fakeipV4: "IPv4 网段",
     fakeipV6: "IPv6 网段",
     fakeipIpv6Enabled: "启用 IPv6 FakeIP / AAAA",
+    telegramCaptureIp: "捕获 Telegram 官方 IP 段",
     fakeipQuicPolicy: "FakeIP QUIC 保护固定开启",
     fakeipQuicPolicyHelp: "系统会固定拦截发往 FakeIP 网段的 UDP/443，让浏览器回落到 TCP，减少 QUIC 长连接占满代理带宽和连接表；真实游戏/语音 UDP 不受影响。",
     editingNode: "正在编辑节点",
@@ -1773,6 +1775,7 @@ function renderNodes() {
   state.groups.auto = state.groups.auto || {};
   state.groups.dns = state.groups.dns || {};
   state.groups.fakeip = state.groups.fakeip || {};
+  state.groups.telegram = state.groups.telegram || {};
   if (document.activeElement !== $("autoUrl")) $("autoUrl").value = state.groups.auto.url || "https://www.gstatic.com/generate_204";
   if (document.activeElement !== $("autoInterval")) $("autoInterval").value = state.groups.auto.interval || "30s";
   if (document.activeElement !== $("autoTolerance")) $("autoTolerance").value = state.groups.auto.tolerance ?? 50;
@@ -1780,6 +1783,7 @@ function renderNodes() {
   if (document.activeElement !== $("fakeipV4")) $("fakeipV4").value = state.groups.fakeip.inet4_range || "28.0.0.0/8";
   if (document.activeElement !== $("fakeipV6")) $("fakeipV6").value = state.groups.fakeip.inet6_range || "2001:2::/64";
   $("fakeipIpv6Enabled").checked = state.groups.fakeip.ipv6_enabled !== false;
+  $("telegramCaptureIp").checked = state.groups.telegram.capture_ip !== false;
   $("nodeTitle").textContent = t("nodes");
   $("nodeSummary").textContent = editingNodeTag
     ? `${t("editingNode")}: ${editingNodeTag}`
@@ -2362,6 +2366,8 @@ function syncNodeSettingsFromForm() {
   state.groups.fakeip.inet6_range = $("fakeipV6").value.trim();
   state.groups.fakeip.ipv6_enabled = $("fakeipIpv6Enabled").checked;
   state.groups.fakeip.block_quic = true;
+  state.groups.telegram = state.groups.telegram || {};
+  state.groups.telegram.capture_ip = $("telegramCaptureIp").checked;
   state.groups.proxy = state.groups.proxy || {};
   if (!$("proxyDefault").classList.contains("hidden") && $("proxyDefault").value) {
     state.groups.proxy.default = $("proxyDefault").value;
@@ -2378,7 +2384,7 @@ function syncDraftSettings() {
   syncNodeSettingsFromForm();
 }
 
-["autoUrl", "autoInterval", "autoTolerance", "fakeipV4", "fakeipV6", "fakeipIpv6Enabled"].forEach((id) => {
+["autoUrl", "autoInterval", "autoTolerance", "fakeipV4", "fakeipV6", "fakeipIpv6Enabled", "telegramCaptureIp"].forEach((id) => {
   $(id).addEventListener("input", syncNodeSettingsChanged);
   $(id).addEventListener("change", syncNodeSettingsChanged);
 });
