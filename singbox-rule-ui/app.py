@@ -541,6 +541,7 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR, normalized_lists=N
     apply_local_dns_settings(config, groups)
     apply_fakeip_settings(config, groups)
     apply_blacklist_dns_reject(config)
+    apply_whitelist_dns_direct(config)
     apply_greylist_dns_fakeip(config, groups)
     apply_inbound_dns_fakeip_fallback(config, groups)
     apply_ddns_dns_settings(config, groups)
@@ -1016,6 +1017,34 @@ def apply_blacklist_dns_reject(config):
         if not (isinstance(rule, dict) and rule.get("rule_set") == CUSTOM_TAGS["blacklist"] and rule.get("action") == "reject")
     ]
     dns_rules.insert(0, {"rule_set": CUSTOM_TAGS["blacklist"], "action": "reject"})
+
+
+def apply_whitelist_dns_direct(config):
+    dns_rules = config.setdefault("dns", {}).setdefault("rules", [])
+    dns_rules[:] = [
+        rule
+        for rule in dns_rules
+        if not (
+            isinstance(rule, dict)
+            and rule.get("rule_set") == CUSTOM_TAGS["whitelist"]
+            and rule.get("server") == "local-dns"
+        )
+    ]
+    insert_at = 0
+    for index, rule in enumerate(dns_rules):
+        if isinstance(rule, dict) and rule.get("rule_set") == CUSTOM_TAGS["blacklist"] and rule.get("action") == "reject":
+            insert_at = index + 1
+            break
+    # 白名单域名必须先走 local-dns 返回真实 IP，避免被后面的 LAN FakeIP 兜底解析成代理路径。
+    dns_rules.insert(
+        insert_at,
+        {
+            "rule_set": CUSTOM_TAGS["whitelist"],
+            "action": "route",
+            "server": "local-dns",
+            "rewrite_ttl": 60,
+        },
+    )
 
 
 def apply_greylist_dns_fakeip(config, groups=None):

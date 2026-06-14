@@ -109,6 +109,12 @@ def ensure_dns_rules(config):
         "rule_set": TAGS["blacklist"],
         "action": "reject",
     }
+    whitelist_rule = {
+        "rule_set": TAGS["whitelist"],
+        "action": "route",
+        "server": "local-dns",
+        "rewrite_ttl": 60,
+    }
     inbound_rule = {
         "inbound": ["dns-in", "dns-in-v6"],
         "rule_set": TAGS["ddns"],
@@ -125,11 +131,16 @@ def ensure_dns_rules(config):
     dns_rules[:] = [
         rule
         for rule in dns_rules
-        if not (rule.get("rule_set") == TAGS["blacklist"] and rule.get("action") == "reject")
+        if not (
+            (rule.get("rule_set") == TAGS["blacklist"] and rule.get("action") == "reject")
+            or (rule.get("rule_set") == TAGS["whitelist"] and rule.get("server") == "local-dns")
+        )
     ]
     dns_rules.insert(0, blacklist_rule)
+    # 白名单在 DNS 层也要直连解析；否则 LAN 入站 FakeIP 兜底会先把域名解析成代理用 FakeIP。
+    dns_rules.insert(1, whitelist_rule)
     if not has_rule(dns_rules, TAGS["ddns"], server="local-dns"):
-        dns_rules.insert(1, global_rule)
+        dns_rules.insert(2, global_rule)
     has_inbound = any(
         rule.get("rule_set") == TAGS["ddns"]
         and rule.get("server") == "local-dns"
@@ -137,7 +148,7 @@ def ensure_dns_rules(config):
         for rule in dns_rules
     )
     if not has_inbound:
-        dns_rules.insert(2, inbound_rule)
+        dns_rules.insert(3, inbound_rule)
 
 
 def ensure_local_dns_server(config):
