@@ -84,27 +84,21 @@ net.ipv6.conf.eth0.accept_ra_defrtr=1
 
 ## 一键安装
 
-推荐使用多入口安装命令，适合新机器还没有代理环境、GitHub DNS 可能被污染、或某个反代临时超时的情况：
+推荐使用代理单入口安装命令，适合新机器还没有代理环境、GitHub DNS 可能被污染的情况：
 
 ```bash
-tmp="$(mktemp)" && for url in \
-  "https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh" \
-  "https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh" \
-  "https://github.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/raw/refs/heads/main/scripts/quick-install.sh" \
-  "https://gh-proxy.com/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh" \
-  "https://gh.llkk.cc/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh"; do \
-  echo "尝试下载: $url"; \
-  curl -fsSL --connect-timeout 10 --max-time 120 "$url" -o "$tmp" && sudo bash "$tmp" && rm -f "$tmp" && exit 0; \
-done; rm -f "$tmp"; echo "所有一键安装入口都下载失败，请检查本机 DNS/出口网络。" >&2; exit 1
+curl -fsSL --connect-timeout 10 --max-time 120 https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh | sudo bash -s -- install
 ```
+
+链接式执行时，`install` 必须放在 `bash -s --` 后面，才能作为参数传给下载到的 `quick-install.sh`。
 
 如果当前机器直连 GitHub 稳定，也可以使用官方单入口：
 
 ```bash
-curl -fsSL --connect-timeout 10 --max-time 120 https://github.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/raw/refs/heads/main/scripts/quick-install.sh | sudo bash
+curl -fsSL --connect-timeout 10 --max-time 120 https://github.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/raw/refs/heads/main/scripts/quick-install.sh | sudo bash -s -- install
 ```
 
-一键安装默认使用简单模式和自动检测到的 LAN IPv4，避免 `curl | sudo bash` 在伪 tty 或网页终端里卡在交互输入；需要手动选择架构、FakeIP 或初始节点时，可在命令前加 `SING_BOX_GATEWAY_INTERACTIVE=1`。安装器只使用仓库自带并验证过的 `sing-box 1.14.0-alpha.31`，不提供自动下载 latest。这样升级目标可追踪，避免上游配置语法继续变化导致安装后无法启动。项目源码下载会优先尝试反代地址，失败后再尝试 GitHub 官方地址。
+一键安装会先让你选择安装模式：输入 `1` 走默认安装，自动检测架构和 LAN IPv4，并用简单模式把服务先启动；输入 `2` 走交互安装，可以手动选择架构、FakeIP、初始节点等配置。只有在网页终端、脚本管道等没有可交互 tty 的环境里，安装器才会自动使用默认值，避免安装过程卡在无人可答的输入上。安装器只使用仓库自带并验证过的 `sing-box 1.14.0-alpha.31`，不提供自动下载 latest。这样升级目标可追踪，避免上游配置语法继续变化导致安装后无法启动。项目源码下载会优先尝试反代地址，失败后再尝试 GitHub 官方地址。
 
 如果机器上已有 `/usr/local/bin/sing-box`，安装器会检查版本；不是 `1.14.0-alpha.31` 时会先备份为 `/usr/local/bin/sing-box.bak-gateway-<时间>`，再安装仓库内置二进制。这个备份只作为人工回滚入口，正常运行仍以仓库验证过的 1.14.0-alpha.31 为准。
 
@@ -270,35 +264,27 @@ SING_BOX_ARCH=arm64 sudo bash scripts/install.sh
 新版本安装器会在 `/etc/sing-box/manager/install-state` 记录安装前状态，用于卸载时判断哪些文件和依赖可以安全删除。老版本安装没有这份记录时，卸载仍会清理本项目路径和服务，但不会猜测删除安装前状态不明的系统组件。
 
 ```bash
-tmp="$(mktemp)" && for url in \
-  "https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh" \
-  "https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh" \
-  "https://github.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/raw/refs/heads/main/scripts/quick-install.sh" \
-  "https://gh-proxy.com/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh" \
-  "https://gh.llkk.cc/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh"; do \
-  echo "尝试下载: $url"; \
-  curl -fsSL --connect-timeout 10 --max-time 120 "$url" -o "$tmp" && sudo bash "$tmp" uninstall && rm -f "$tmp" && exit 0; \
-done; rm -f "$tmp"; echo "所有一键卸载入口都下载失败，请检查本机 DNS/出口网络。" >&2; exit 1
+curl -fsSL --connect-timeout 10 --max-time 120 https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh | sudo bash -s -- uninstall
+```
+
+链接式执行时，`uninstall` 必须放在 `bash -s --` 后面，才能作为参数传给下载到的 `quick-install.sh`。
+
+直连 GitHub 稳定时也可以使用官方卸载入口：
+
+```bash
+curl -fsSL --connect-timeout 10 --max-time 120 https://github.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/raw/refs/heads/main/scripts/quick-install.sh | sudo bash -s -- uninstall
 ```
 
 如果没有安装状态记录，但你仍然确认要删除 `/usr/local/bin/sing-box`，可以使用 purge：
 
 ```bash
-tmp="$(mktemp)" && for url in \
-  "https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh" \
-  "https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh" \
-  "https://github.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/raw/refs/heads/main/scripts/quick-install.sh" \
-  "https://gh-proxy.com/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh" \
-  "https://gh.llkk.cc/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh"; do \
-  echo "尝试下载: $url"; \
-  curl -fsSL --connect-timeout 10 --max-time 120 "$url" -o "$tmp" && sudo bash "$tmp" purge && rm -f "$tmp" && exit 0; \
-done; rm -f "$tmp"; echo "所有一键清理入口都下载失败，请检查本机 DNS/出口网络。" >&2; exit 1
+curl -fsSL --connect-timeout 10 --max-time 120 https://scg.jgaga.tk/https://raw.githubusercontent.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/main/scripts/quick-install.sh | sudo bash -s -- purge
 ```
 
 直连 GitHub 稳定时也可以使用官方 purge 入口：
 
 ```bash
-curl -fsSL --connect-timeout 10 --max-time 120 https://github.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/raw/refs/heads/main/scripts/quick-install.sh | sudo bash -s purge
+curl -fsSL --connect-timeout 10 --max-time 120 https://github.com/hanigege/sing-box-gateway-ui--1.14x-SagerNet/raw/refs/heads/main/scripts/quick-install.sh | sudo bash -s -- purge
 ```
 
 ## Git 安装

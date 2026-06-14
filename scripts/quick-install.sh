@@ -50,6 +50,51 @@ download_urls() {
   printf "%s\n" "$url"
 }
 
+choose_install_mode() {
+  local answer
+  if [ "${SING_BOX_GATEWAY_ASSUME_DEFAULTS:-0}" = "1" ]; then
+    echo "已通过 SING_BOX_GATEWAY_ASSUME_DEFAULTS=1 指定默认安装。"
+    return
+  fi
+  if [ "${SING_BOX_GATEWAY_INTERACTIVE:-0}" = "1" ]; then
+    if [ -r /dev/tty ]; then
+      exec bash "$target" "${args[@]}" </dev/tty
+    fi
+    echo "已请求交互安装，但当前环境没有可读取的 /dev/tty；改用默认安装。"
+    export SING_BOX_GATEWAY_ASSUME_DEFAULTS=1
+    return
+  fi
+  if [ ! -r /dev/tty ]; then
+    # 管道安装没有交互终端时只能走默认值，避免安装过程卡在无人可答的输入上。
+    echo "未检测到可交互终端，使用默认值继续安装。需要交互安装时，请在普通 SSH/终端里重新运行并选择 2。"
+    export SING_BOX_GATEWAY_ASSUME_DEFAULTS=1
+    return
+  fi
+
+  {
+    echo
+    echo "请选择安装模式："
+    echo "  1) 默认安装：自动检测架构和 LAN IPv4，使用模板节点先启动服务"
+    echo "  2) 交互安装：手动选择架构、FakeIP、初始节点等配置"
+    printf "请输入 1 或 2 [1]: "
+  } > /dev/tty
+  IFS= read -r answer < /dev/tty || answer=""
+  case "${answer:-1}" in
+    2)
+      exec bash "$target" "${args[@]}" </dev/tty
+      ;;
+    1|"")
+      export SING_BOX_GATEWAY_ASSUME_DEFAULTS=1
+      echo "已选择默认安装。"
+      ;;
+    *)
+      echo "未知选择: $answer" >&2
+      echo "请重新运行安装命令，并输入 1 或 2。" >&2
+      exit 1
+      ;;
+  esac
+}
+
 echo "正在下载 sing-box-gateway-ui ${REPO}@${REF}..."
 archive_url="https://github.com/${REPO}/archive/refs/heads/${REF}.tar.gz"
 archive_urls=($(download_urls "$archive_url"))
@@ -87,14 +132,8 @@ case "$ACTION" in
     ;;
 esac
 
-if [ "${SING_BOX_GATEWAY_INTERACTIVE:-0}" = "1" ] && [ -r /dev/tty ]; then
-  exec bash "$target" "${args[@]}" </dev/tty
-fi
-
 if [ "$ACTION" = "install" ] || [ -z "$ACTION" ]; then
-  # 一键安装默认走非交互路径，避免 curl | sudo bash 在面板终端或伪 tty 环境里卡在问答输入。
-  export SING_BOX_GATEWAY_ASSUME_DEFAULTS="${SING_BOX_GATEWAY_ASSUME_DEFAULTS:-1}"
-  echo "使用默认值继续安装；如需交互式安装，请设置 SING_BOX_GATEWAY_INTERACTIVE=1。"
+  choose_install_mode
 else
   args+=("--yes")
 fi
