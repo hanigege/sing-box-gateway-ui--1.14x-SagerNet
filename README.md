@@ -6,16 +6,6 @@
 
 设计目标是：**高效、简洁、sing-box 不死**。所有配置保存、规则更新和 TProxy 同步都应先检查、可回滚，避免因为错误输入导致正在运行的 `sing-box` 无法启动。
 
-## 截图
-
-规则管理 UI：
-
-![Rule UI login](docs/images/rule-ui-login.jpg)
-
-节点管理：
-
-![Rule UI nodes](docs/images/rule-ui-nodes.png)
-
 ## 功能
 
 - 一键安装 `sing-box` 二进制、systemd 服务、TProxy 和 Web UI
