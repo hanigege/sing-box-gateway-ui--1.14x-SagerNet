@@ -81,7 +81,54 @@ url_host() {
 resolve_host_ipv4() {
   local host="$1" server answer
   for server in "${RULE_UPDATE_DNS_SERVERS[@]}"; do
-    answer="$(dig +short @"$server" "$host" A 2>/dev/null | grep -E '^[0-9.]+$' | head -1 || true)"
+    answer="$(python3 - "$server" "$host" <<'PY' 2>/dev/null || true
+import ipaddress
+import random
+import socket
+import sys
+
+server, host = sys.argv[1], sys.argv[2].rstrip(".")
+query_id = random.randrange(65536).to_bytes(2, "big")
+packet = query_id + b"\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00"
+for label in host.split("."):
+    raw = label.encode("ascii")
+    packet += bytes([len(raw)]) + raw
+packet += b"\x00\x00\x01\x00\x01"
+with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as dns_sock:
+    dns_sock.settimeout(3)
+    dns_sock.sendto(packet, (server, 53))
+    data, _ = dns_sock.recvfrom(512)
+if len(data) < 12 or data[:2] != query_id:
+    raise SystemExit(1)
+answer_count = int.from_bytes(data[6:8], "big")
+offset = 12
+while offset < len(data) and data[offset]:
+    offset += data[offset] + 1
+offset += 5
+for _ in range(answer_count):
+    if offset >= len(data):
+        break
+    if data[offset] & 0xC0 == 0xC0:
+        offset += 2
+    else:
+        while offset < len(data) and data[offset]:
+            offset += data[offset] + 1
+        offset += 1
+    if offset + 10 > len(data):
+        break
+    record_type = int.from_bytes(data[offset:offset + 2], "big")
+    record_class = int.from_bytes(data[offset + 2:offset + 4], "big")
+    rdlength = int.from_bytes(data[offset + 8:offset + 10], "big")
+    offset += 10
+    value = data[offset:offset + rdlength]
+    offset += rdlength
+    if record_type == 1 and record_class == 1 and rdlength == 4:
+        # 不依赖 dig/dnsutils，直接向外部 DNS 查询 A 记录，避免本机 FakeIP DNS 影响规则维护。
+        print(ipaddress.IPv4Address(value))
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+)"
     if [ -n "$answer" ]; then
       echo "$answer"
       return 0

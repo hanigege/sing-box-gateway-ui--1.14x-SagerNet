@@ -90,6 +90,11 @@ TELEGRAM_CIDR_SOURCES = tuple(
     for item in os.environ.get("RULE_UI_TELEGRAM_CIDR_SOURCES", " ".join(DEFAULT_TELEGRAM_CIDR_SOURCES)).split()
     if item
 )
+TELEGRAM_CIDR_DNS_SERVERS = tuple(
+    item
+    for item in os.environ.get("RULE_UI_TELEGRAM_CIDR_DNS_SERVERS", "1.1.1.1 8.8.8.8 119.29.29.29").split()
+    if item
+)
 
 LOCAL_DNS_SERVER = {
     "tag": "local-dns",
@@ -482,15 +487,90 @@ def save_telegram_cidrs(cidrs, source="manual"):
     return load_telegram_cidr_data()
 
 
+def resolve_source_ipv4(host):
+    for server in TELEGRAM_CIDR_DNS_SERVERS:
+        try:
+            query_id = secrets.randbelow(65536).to_bytes(2, "big")
+            packet = query_id + b"\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00"
+            for label in host.rstrip(".").split("."):
+                raw = label.encode("ascii")
+                packet += bytes([len(raw)]) + raw
+            packet += b"\x00\x00\x01\x00\x01"
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as dns_sock:
+                dns_sock.settimeout(3)
+                dns_sock.sendto(packet, (server, 53))
+                data, _ = dns_sock.recvfrom(512)
+            if len(data) < 12 or data[:2] != query_id:
+                continue
+            answer_count = int.from_bytes(data[6:8], "big")
+            offset = 12
+            while offset < len(data) and data[offset]:
+                offset += data[offset] + 1
+            offset += 5
+            for _ in range(answer_count):
+                if offset >= len(data):
+                    break
+                if data[offset] & 0xC0 == 0xC0:
+                    offset += 2
+                else:
+                    while offset < len(data) and data[offset]:
+                        offset += data[offset] + 1
+                    offset += 1
+                if offset + 10 > len(data):
+                    break
+                record_type = int.from_bytes(data[offset : offset + 2], "big")
+                record_class = int.from_bytes(data[offset + 2 : offset + 4], "big")
+                rdlength = int.from_bytes(data[offset + 8 : offset + 10], "big")
+                offset += 10
+                value = data[offset : offset + rdlength]
+                offset += rdlength
+                if record_type == 1 and record_class == 1 and rdlength == 4:
+                    # 不依赖 dig/dnsutils，直接向外部 DNS 查询 A 记录，避免本机 FakeIP DNS 影响维护更新。
+                    return str(ipaddress.IPv4Address(value))
+        except Exception:
+            continue
+    return ""
+
+
+def fetch_telegram_cidr_source(source):
+    parsed = urlparse(source)
+    host = parsed.hostname or ""
+    command = ["curl", "-4", "-fsSL", "--connect-timeout", "4", "--max-time", "20"]
+    resolved = resolve_source_ipv4(host) if host else ""
+    if resolved and parsed.scheme == "https":
+        # UI 后端同样要绕开本机 FakeIP DNS，否则宿主机 DNS 指向 sing-box 时在线更新会直连 FakeIP 失败。
+        command.extend(["--resolve", f"{host}:443:{resolved}"])
+    command.append(source)
+    result = subprocess.run(command, capture_output=True, text=True, timeout=25)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or f"curl exited {result.returncode}")
+    return result.stdout
+
+
 def update_telegram_cidrs():
     errors = []
     if not TELEGRAM_CIDR_SOURCES:
         return {"ok": False, "source": "", "telegramCidr": load_telegram_cidr_data(), "tproxySync": None, "errors": ["No Telegram CIDR sources configured"]}
+    if RULE_UPDATE_SCRIPT.exists():
+        env = os.environ.copy()
+        env.setdefault("RULE_UPDATE_RESTART", "0")
+        env.setdefault("RULE_UPDATE_TELEGRAM_CIDR_SOURCES", " ".join(TELEGRAM_CIDR_SOURCES))
+        result = subprocess.run([str(RULE_UPDATE_SCRIPT)], capture_output=True, text=True, timeout=300, env=env)
+        if result.returncode == 0:
+            data = load_telegram_cidr_data()
+            sync = sync_tproxy()
+            return {
+                "ok": sync["code"] == 0,
+                "source": data.get("source", "rule update script"),
+                "telegramCidr": data,
+                "tproxySync": sync,
+                "errors": [],
+                "script": {"code": result.returncode, "stdout": result.stdout.strip(), "stderr": result.stderr.strip()},
+            }
+        errors.append(f"{RULE_UPDATE_SCRIPT}: {result.stderr.strip() or result.stdout.strip() or f'exited {result.returncode}'}")
     for source in TELEGRAM_CIDR_SOURCES:
         try:
-            request = Request(source, headers={"User-Agent": "sing-box-gateway-ui"})
-            with urlopen(request, timeout=20) as response:
-                text = response.read().decode("utf-8", errors="replace")
+            text = fetch_telegram_cidr_source(source)
             data = save_telegram_cidrs(parse_telegram_cidr_text(text), source=source)
             sync = sync_tproxy()
             return {"ok": sync["code"] == 0, "source": source, "telegramCidr": data, "tproxySync": sync, "errors": errors}

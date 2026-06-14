@@ -335,9 +335,8 @@ PY
 }
 
 port53_owners() {
-  ss -H -ltnup 'sport = :53' 2>/dev/null | awk '
-    match($0, /users:\(\("([^"]+)"/, m) { print m[1] }
-  ' | sort -u | paste -sd, -
+  # Debian 13 默认 awk 不支持 match(..., array)，用 sed 提取进程名以兼容 mawk/gawk。
+  ss -H -ltnup 'sport = :53' 2>/dev/null | sed -n 's/.*users:((\"\([^\"]*\)\".*/\1/p' | sort -u | paste -sd, -
 }
 
 disable_systemd_resolved_stub() {
