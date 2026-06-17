@@ -272,10 +272,10 @@ def base_config(lan_ip, ui_secret, fake4, fake6, ipv6_dns_listen):
             ],
             "rules": [
                 {"inbound": dns_inbounds, "action": "hijack-dns"},
-                # 保留 CIDR 兜底，覆盖尚未还原域名的 FakeIP UDP/443；不能扩大到全部 UDP/443。
-                {"network": "udp", "port": 443, "ip_cidr": [fake4, fake6], "outbound": "block"},
-                # FakeIP 视频连接可能在路由阶段已还原成域名；再按 YouTube/Google 视频域名收窄阻断 QUIC。
-                {"network": "udp", "port": 443, "domain_suffix": YOUTUBE_QUIC_DOMAINS, "outbound": "block"},
+                # 保留 CIDR 兜底，使用路由层 reject 触发 QUIC 回落，避免正常策略行为刷成 outbound block 错误。
+                {"network": "udp", "port": 443, "ip_cidr": [fake4, fake6], "action": "reject"},
+                # FakeIP 视频连接可能在路由阶段已还原成域名；再按 YouTube/Google 视频域名收窄拒绝 QUIC。
+                {"network": "udp", "port": 443, "domain_suffix": YOUTUBE_QUIC_DOMAINS, "action": "reject"},
                 {"inbound": "tproxy-in", "action": "sniff", "sniffer": ["tls", "http"], "timeout": "300ms"},
                 {"rule_set": "custom-blacklist", "outbound": "block"},
                 {"rule_set": "custom-whitelist", "outbound": "direct"},

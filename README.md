@@ -158,7 +158,7 @@ nameserver 192.168.1.2
 
 内置规则更新脚本只维护运行配置真实引用的规则集：`geosite-geolocation-!cn`、`geosite-cn`、`geosite-geolocation-cn`、`geosite-icloud@cn`、`geosite-apple@cn`、`geosite-speedtest`、`geosite-telegram`、`geoip-cn` 和 `geoip-telegram`。默认使用 MetaCubeX 的 sing-box `.srs` 规则集，不再依赖 SagerNet 规则仓库；下载时优先走 `https://scg.jgaga.tk/https://raw.githubusercontent.com/...`，并用真实 DNS 解析规则源主机，避免宿主机 `/etc/resolv.conf` 指向 sing-box 时拿到 FakeIP 后直连超时。Telegram 是默认保留的核心例外，因为客户端可能直接连接官方 IP 段，只靠域名地理规则不够稳。TProxy 使用的 Telegram 官方 IP 捕获列表会优先从 Telegram 官方 `cidr.txt` 更新，失败再尝试 GitHub 镜像；这些来源可用 `RULE_UI_TELEGRAM_CIDR_SOURCES` 或 `RULE_UPDATE_TELEGRAM_CIDR_SOURCES` 覆盖。更新内容必须通过 CIDR 校验才会写入 `/etc/sing-box/manager/telegram-cidr.json`，失败时保留旧列表或使用内置兜底。YouTube、Netflix 等其它应用类规则如果没有被路由规则或 UI 开关引用，默认不下载；这些站点仍由 `geosite-geolocation-!cn` 覆盖走代理，只有需要为某个应用单独指定策略时，才应该新增对应 UI 开关和规则引用。规则下载越多不等于体验越好，未引用文件只会增加定时更新失败、死链和排障噪音。
 
-FakeIP 固定启用 UDP/443 保护：对 YouTube/Google 视频相关域名的 QUIC 流量执行 `block`，并保留 FakeIP 网段 UDP/443 兜底，让浏览器自动回落到 TCP/HTTPS，再继续按域名规则走直连或代理。这样可以减少 YouTube、Google 等大流量 QUIC 长连接压住代理节点和连接表；真实目标 IP 的游戏 UDP、语音 UDP 和直连业务不受这条规则影响。这个保护属于网关稳定性边界，不在 UI 里提供关闭入口。
+FakeIP 固定启用 UDP/443 保护：对 YouTube/Google 视频相关域名的 QUIC 流量执行路由层 `reject`，并保留 FakeIP 网段 UDP/443 兜底，让浏览器自动回落到 TCP/HTTPS，再继续按域名规则走直连或代理。这样可以减少 YouTube、Google 等大流量 QUIC 长连接压住代理节点和连接表，也避免把正常策略行为刷成 outbound block 错误；真实目标 IP 的游戏 UDP、语音 UDP 和直连业务不受这条规则影响。这个保护属于网关稳定性边界，不在 UI 里提供关闭入口。
 
 如果你确实需要让本机广播 IPv6 默认网关，可以自行安装 `radvd`，并在运行安装器、UI 或同步脚本时显式设置：
 
