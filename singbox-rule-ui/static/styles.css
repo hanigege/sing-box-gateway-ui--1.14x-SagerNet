@@ -1192,6 +1192,11 @@ input[type="checkbox"] {
   color: var(--ok);
 }
 
+.maintenance-overview-tile.compact strong {
+  font-size: 18px;
+  line-height: 1.25;
+}
+
 .maintenance-overview-tile.good {
   border-color: rgba(52, 199, 89, 0.28);
 }

@@ -1187,7 +1187,7 @@ function renderMaintenance() {
     [t("updateResult"), updateResult, statusTone(updateResult)],
     [t("updatedCount"), String((summary.updated || []).length), "good"],
     [t("tproxyService"), tproxy.serviceActive, statusTone(tproxy.serviceActive)],
-    [t("nextUpdate"), rule.next],
+    [t("nextUpdate"), rule.next, rule.next ? "good compact" : ""],
   ]));
 
   // 维护页按折叠分组纵向排列，标题只保留箭头和名称，避免右侧状态字干扰扫读。
