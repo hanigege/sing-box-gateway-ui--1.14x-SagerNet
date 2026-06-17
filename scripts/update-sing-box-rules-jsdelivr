@@ -10,6 +10,7 @@ SERVICE="${RULE_UPDATE_SERVICE_NAME:-sing-box.service}"
 TPROXY_SERVICE="${RULE_UPDATE_TPROXY_SERVICE:-sing-box-tproxy.service}"
 RESTART_SERVICE="${RULE_UPDATE_RESTART:-1}"
 FORCE_UPDATE="${RULE_UPDATE_FORCE:-0}"
+TELEGRAM_ONLY="${RULE_UPDATE_TELEGRAM_ONLY:-0}"
 LOCK_FILE="/run/update-sing-box-rules-jsdelivr.lock"
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
@@ -54,6 +55,9 @@ BACKUP_DIR="$TMP_DIR/backup"
 NEW_DIR="$TMP_DIR/new"
 mkdir -p "$BACKUP_DIR" "$NEW_DIR"
 DEFAULT_TELEGRAM_CIDR_SOURCES=(
+  # Telegram 官方和 GitHub raw 在部分网络下容易超时；优先走同一个 GitHub/HTTPS 代理，直连只做兜底。
+  "https://scg.jgaga.tk/https://core.telegram.org/resources/cidr.txt"
+  "https://scg.jgaga.tk/https://raw.githubusercontent.com/fernvenue/telegram-cidr-list/master/CIDR.txt"
   "https://core.telegram.org/resources/cidr.txt"
   "https://raw.githubusercontent.com/fernvenue/telegram-cidr-list/master/CIDR.txt"
 )
@@ -216,6 +220,12 @@ PY
   echo "optional telegram cidr list unavailable; built-in UI fallback will be used" >&2
   return 0
 }
+
+if [ "$TELEGRAM_ONLY" = "1" ]; then
+  # UI 的“在线更新并应用”只维护 Telegram 官方 IP 捕获列表；不能先跑完整规则集更新，避免外部规则镜像慢时阻塞页面。
+  update_telegram_cidr_file
+  exit 0
+fi
 
 required_files_present() {
   local name

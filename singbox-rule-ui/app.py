@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import ipaddress
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -31,6 +32,7 @@ GROUPS_PATH = MANAGER_DIR / "groups.json"
 BACKUP_DIR = MANAGER_DIR / "backups"
 RULE_UPDATE_LAST_PATH = MANAGER_DIR / "rule-update-last.json"
 TELEGRAM_CIDR_PATH = MANAGER_DIR / "telegram-cidr.json"
+TELEGRAM_CIDR_LAST_PATH = MANAGER_DIR / "telegram-cidr-last.json"
 RULE_UPDATE_SCRIPT = Path(os.environ.get("RULE_UI_RULE_UPDATE_SCRIPT", "/usr/local/sbin/update-sing-box-rules-jsdelivr"))
 RULE_UPDATE_TIMER = os.environ.get("RULE_UI_RULE_UPDATE_TIMER", "update-sing-box-rules-jsdelivr.timer")
 RULE_UPDATE_SERVICE = os.environ.get("RULE_UI_RULE_UPDATE_SERVICE", "update-sing-box-rules-jsdelivr.service")
@@ -82,6 +84,8 @@ DEFAULT_TELEGRAM_PROXY_IPV6 = (
     "2a0a:f280::/32",
 )
 DEFAULT_TELEGRAM_CIDR_SOURCES = (
+    "https://scg.jgaga.tk/https://core.telegram.org/resources/cidr.txt",
+    "https://scg.jgaga.tk/https://raw.githubusercontent.com/fernvenue/telegram-cidr-list/master/CIDR.txt",
     "https://core.telegram.org/resources/cidr.txt",
     "https://raw.githubusercontent.com/fernvenue/telegram-cidr-list/master/CIDR.txt",
 )
@@ -130,6 +134,7 @@ SPECIAL_OUTBOUNDS = {"Proxy", "Auto", "direct", "block"}
 SUPPORTED_NODE_TYPES = {"hysteria2", "vless"}
 BACKUP_VERSION = 1
 LOG_LEVELS = {"trace", "debug", "info", "warn", "warning", "error", "fatal", "panic"}
+SYSTEMD_WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 LEGACY_APP_RULE_SETS = {
     "geosite-ai",
     "geosite-youtube",
@@ -535,13 +540,21 @@ def resolve_source_ipv4(host):
 def fetch_telegram_cidr_source(source):
     parsed = urlparse(source)
     host = parsed.hostname or ""
-    command = ["curl", "-4", "-fsSL", "--connect-timeout", "4", "--max-time", "20"]
+    command = [
+        "curl",
+        "-4",
+        "-fsSL",
+        "--connect-timeout",
+        str(TELEGRAM_CIDR_CONNECT_TIMEOUT),
+        "--max-time",
+        str(TELEGRAM_CIDR_MAX_TIME),
+    ]
     resolved = resolve_source_ipv4(host) if host else ""
     if resolved and parsed.scheme == "https":
         # UI 后端同样要绕开本机 FakeIP DNS，否则宿主机 DNS 指向 sing-box 时在线更新会直连 FakeIP 失败。
         command.extend(["--resolve", f"{host}:443:{resolved}"])
     command.append(source)
-    result = subprocess.run(command, capture_output=True, text=True, timeout=25)
+    result = subprocess.run(command, capture_output=True, text=True, timeout=TELEGRAM_CIDR_MAX_TIME + 5)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip() or f"curl exited {result.returncode}")
     return result.stdout
@@ -549,35 +562,51 @@ def fetch_telegram_cidr_source(source):
 
 def update_telegram_cidrs():
     errors = []
+    started = time.strftime("%Y-%m-%d %H:%M:%S")
     if not TELEGRAM_CIDR_SOURCES:
         return {"ok": False, "source": "", "telegramCidr": load_telegram_cidr_data(), "tproxySync": None, "errors": ["No Telegram CIDR sources configured"]}
-    if RULE_UPDATE_SCRIPT.exists():
-        env = os.environ.copy()
-        env.setdefault("RULE_UPDATE_RESTART", "0")
-        env.setdefault("RULE_UPDATE_TELEGRAM_CIDR_SOURCES", " ".join(TELEGRAM_CIDR_SOURCES))
-        result = subprocess.run([str(RULE_UPDATE_SCRIPT)], capture_output=True, text=True, timeout=300, env=env)
-        if result.returncode == 0:
-            data = load_telegram_cidr_data()
-            sync = sync_tproxy()
-            return {
-                "ok": sync["code"] == 0,
-                "source": data.get("source", "rule update script"),
-                "telegramCidr": data,
-                "tproxySync": sync,
-                "errors": [],
-                "script": {"code": result.returncode, "stdout": result.stdout.strip(), "stderr": result.stderr.strip()},
-            }
-        errors.append(f"{RULE_UPDATE_SCRIPT}: {result.stderr.strip() or result.stdout.strip() or f'exited {result.returncode}'}")
+    write_json(
+        TELEGRAM_CIDR_LAST_PATH,
+        {
+            "startedAt": started,
+            "finishedAt": "",
+            "result": "running",
+            "source": "",
+            "errors": [],
+        },
+    )
     for source in TELEGRAM_CIDR_SOURCES:
         try:
             text = fetch_telegram_cidr_source(source)
             data = save_telegram_cidrs(parse_telegram_cidr_text(text), source=source)
             sync = sync_tproxy()
-            return {"ok": sync["code"] == 0, "source": source, "telegramCidr": data, "tproxySync": sync, "errors": errors}
+            ok = sync["code"] == 0
+            # Telegram CIDR 更新是独立维护动作，不能再调用完整规则集脚本；否则会先探测/下载全部 geosite/geoip，网络慢时 UI 看起来像卡死。
+            write_json(
+                TELEGRAM_CIDR_LAST_PATH,
+                {
+                    "startedAt": started,
+                    "finishedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "result": "success" if ok else "tproxy-sync-failed",
+                    "source": source,
+                    "errors": [] if ok else [sync.get("stderr") or sync.get("stdout") or "TProxy sync failed"],
+                },
+            )
+            return {"ok": ok, "source": source, "telegramCidr": data, "tproxySync": sync, "errors": errors}
         except Exception as exc:
             errors.append(f"{source}: {exc}")
+    # UI 失败时只汇报每个 CIDR 源的错误，不兜底跑规则脚本；旧服务器脚本可能还不支持 Telegram-only，会重新触发完整规则更新。
+    write_json(
+        TELEGRAM_CIDR_LAST_PATH,
+        {
+            "startedAt": started,
+            "finishedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "result": "failed",
+            "source": "",
+            "errors": errors,
+        },
+    )
     return {"ok": False, "source": "", "telegramCidr": load_telegram_cidr_data(), "tproxySync": None, "errors": errors}
-
 
 def normalize_node(raw):
     if not isinstance(raw, dict):
@@ -1607,6 +1636,10 @@ def parse_systemd_minutes(value):
         return None
     if text.endswith("h"):
         return int(text[:-1]) * 60
+    if text.endswith("d"):
+        return int(text[:-1]) * 24 * 60
+    if text.endswith("w"):
+        return int(text[:-1]) * 7 * 24 * 60
     if text.endswith("min"):
         return int(text[:-3])
     if text.endswith("ms") or text.endswith("us"):
@@ -1629,8 +1662,14 @@ def parse_systemd_hours(value):
 
 def parse_rule_update_schedule(timer):
     calendar = timer.get("TimersCalendar", "")
-    match = re.search(r"OnCalendar=(?:(Sun)\s+)?\*-\*-\*\s+(\d{1,2}):(\d{2}):", calendar)
-    frequency = "weekly" if match and match.group(1) == "Sun" else "daily"
+    active_minutes = parse_systemd_minutes(timer.get("OnActiveUSec"))
+    if active_minutes is None and RULE_UPDATE_TIMER_DROPIN.exists():
+        dropin_text = RULE_UPDATE_TIMER_DROPIN.read_text(encoding="utf-8")
+        active_match = re.search(r"^OnActiveSec=(\S+)", dropin_text, re.MULTILINE)
+        active_minutes = parse_systemd_minutes(active_match.group(1)) if active_match else None
+    match = re.search(r"OnCalendar=(?:([A-Z][a-z]{2})\s+)?\*-\*-\*\s+(\d{1,2}):(\d{2}):", calendar)
+    weekday = match.group(1) if match and match.group(1) in SYSTEMD_WEEKDAYS else ""
+    frequency = "weekly" if weekday or active_minutes == 7 * 24 * 60 else "daily"
     hour = int(match.group(2)) if match else 4
     minute = int(match.group(3)) if match else 20
     randomized_delay_hours = parse_systemd_hours(timer.get("RandomizedDelayUSec")) or 0
@@ -1640,6 +1679,7 @@ def parse_rule_update_schedule(timer):
         next_base = next_match.group(1).strip()
     return {
         "frequency": frequency,
+        "weekday": weekday,
         "hour": hour,
         "minute": minute,
         "randomizedDelayHours": randomized_delay_hours,
@@ -1656,6 +1696,7 @@ def normalize_rule_update_schedule(payload):
         hour = int(payload.get("hour"))
         minute = int(payload.get("minute"))
         randomized_delay_hours = int(payload.get("randomizedDelayHours", payload.get("randomizedDelayMinutes", 0)))
+        persistent = normalize_bool(payload.get("persistent", True))
     except (TypeError, ValueError):
         raise ValueError("自动更新时间必须是有效数字")
     if frequency not in {"daily", "weekly"}:
@@ -1666,20 +1707,22 @@ def normalize_rule_update_schedule(payload):
         raise ValueError("自动更新时间分钟必须在 0 到 59 之间")
     if not 0 <= randomized_delay_hours <= 24:
         raise ValueError("随机延迟小时必须在 0 到 24 之间")
-    return {"frequency": frequency, "hour": hour, "minute": minute, "randomizedDelayHours": randomized_delay_hours}
+    return {"frequency": frequency, "hour": hour, "minute": minute, "randomizedDelayHours": randomized_delay_hours, "persistent": persistent}
 
 
 def write_rule_update_schedule(payload):
     schedule = normalize_rule_update_schedule(payload)
-    calendar_prefix = "Sun " if schedule["frequency"] == "weekly" else ""
+    calendar_prefix = f"{payload.get('weekday') if payload.get('weekday') in SYSTEMD_WEEKDAYS else 'Sun'} " if schedule["frequency"] == "weekly" else ""
     content = "\n".join(
         [
             "[Timer]",
             "# UI 只调整规则自动更新的触发周期和时间；不要在这里改 ExecStart，避免绕过仓库内受控的更新脚本。",
             "OnCalendar=",
+            "OnActiveSec=",
+            "OnUnitInactiveSec=",
             f"OnCalendar={calendar_prefix}*-*-* {schedule['hour']:02d}:{schedule['minute']:02d}:00",
             f"RandomizedDelaySec={schedule['randomizedDelayHours']}h",
-            "Persistent=true",
+            f"Persistent={'true' if schedule.get('persistent', True) else 'false'}",
             "",
         ]
     )
@@ -1692,6 +1735,60 @@ def write_rule_update_schedule(payload):
     restart = run_command(["systemctl", "restart", RULE_UPDATE_TIMER], timeout=20)
     return {"ok": restart["code"] == 0, "schedule": schedule, "daemonReload": daemon_reload, "restart": restart}
 
+
+def write_relative_rule_update_schedule(schedule):
+    interval = "7d" if schedule["frequency"] == "weekly" else "1d"
+    content = "\n".join(
+        [
+            "[Timer]",
+            "# 手动更新成功后使用相对 timer，从本次完成时间开始顺延一个完整周期，避免 OnCalendar/Persistent 在当天补跑。",
+            "OnCalendar=",
+            "OnActiveSec=",
+            "OnUnitInactiveSec=",
+            f"OnActiveSec={interval}",
+            f"OnUnitInactiveSec={interval}",
+            f"RandomizedDelaySec={schedule['randomizedDelayHours']}h",
+            "Persistent=false",
+            "",
+        ]
+    )
+    RULE_UPDATE_TIMER_DROPIN.parent.mkdir(parents=True, exist_ok=True)
+    RULE_UPDATE_TIMER_DROPIN.write_text(content, encoding="utf-8")
+    daemon_reload = run_command(["systemctl", "daemon-reload"], timeout=20)
+    if daemon_reload["code"] != 0:
+        return {"ok": False, "schedule": schedule, "daemonReload": daemon_reload, "restart": None}
+    restart = run_command(["systemctl", "restart", RULE_UPDATE_TIMER], timeout=20)
+    return {"ok": restart["code"] == 0, "schedule": schedule, "daemonReload": daemon_reload, "restart": restart}
+
+
+def clean_systemd_time(value):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    match = re.search(r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})", text)
+    return match.group(1) if match else text
+
+
+def rule_update_timer_trigger_time():
+    result = run_command(["systemctl", "status", RULE_UPDATE_TIMER, "--no-pager", "-l"], timeout=8)
+    text = result["stdout"] or result["stderr"]
+    match = re.search(r"^\s*Trigger:\s+([^;\n]+)", text, re.MULTILINE)
+    return clean_systemd_time(match.group(1)) if match else ""
+
+
+def reschedule_rule_update_timer_after_manual_success():
+    timer_before = systemctl_show(RULE_UPDATE_TIMER, ["TimersCalendar", "OnActiveUSec", "RandomizedDelayUSec"])
+    schedule = parse_rule_update_schedule(timer_before)
+    now = datetime.now()
+    schedule["hour"] = now.hour
+    schedule["minute"] = now.minute
+    schedule["persistent"] = False
+    if schedule["frequency"] == "weekly":
+        # systemd 的 OnCalendar/Persistent 组合无法表达“从本次手动更新后顺延一周”，这里改用相对 timer。
+        schedule["weekday"] = SYSTEMD_WEEKDAYS[now.weekday()]
+    schedule_update = write_relative_rule_update_schedule(schedule)
+    timer = systemctl_show(RULE_UPDATE_TIMER, ["ActiveState", "NextElapseUSecRealtime", "TimersCalendar", "Result"])
+    return {"ok": schedule_update["ok"], "scheduleUpdate": schedule_update, "timer": timer}
 
 def default_lan_ip():
     result = run_command(["ip", "-o", "-4", "route", "get", "1.1.1.1"], timeout=8)
@@ -2413,6 +2510,7 @@ def maintenance_status():
             "LastTriggerUSec",
             "NextElapseUSecRealtime",
             "TimersCalendar",
+            "OnActiveUSec",
             "RandomizedDelayUSec",
             "Persistent",
             "Result",
@@ -2432,7 +2530,16 @@ def maintenance_status():
     schedule = parse_rule_update_schedule(timer)
     telegram_cidr = load_telegram_cidr_data()
     # systemd 在刚触发或不同版本字段为空时，NextElapseUSecRealtime 可能短暂不可用；用 TimersCalendar 的 next_elapse 兜底，避免 UI 把可恢复状态显示成未知。
-    next_update = timer.get("NextElapseUSecRealtime", "") or schedule.get("nextBase", "")
+    next_update = clean_systemd_time(timer.get("NextElapseUSecRealtime", "") or schedule.get("nextBase", "")) or rule_update_timer_trigger_time()
+    next_match = re.search(r"\d{4}-\d{2}-\d{2}\s+(\d{2}):(\d{2}):", next_update)
+    if next_match and RULE_UPDATE_TIMER_DROPIN.exists():
+        dropin_text = RULE_UPDATE_TIMER_DROPIN.read_text(encoding="utf-8")
+        relative_timer = re.search(r"^OnActiveSec=\S+", dropin_text, re.MULTILINE) or re.search(r"^OnUnitInactiveSec=\S+", dropin_text, re.MULTILINE)
+    else:
+        relative_timer = None
+    if next_match and relative_timer:
+        schedule["hour"] = int(next_match.group(1))
+        schedule["minute"] = int(next_match.group(2))
     return {
         "ruleUpdate": {
             "script": str(RULE_UPDATE_SCRIPT),
@@ -2440,7 +2547,7 @@ def maintenance_status():
             "timer": RULE_UPDATE_TIMER,
             "timerActive": unit_status(RULE_UPDATE_TIMER),
             "next": next_update,
-            "last": last_text,
+            "last": clean_systemd_time(last_text),
             "result": result_text,
             "serviceState": service.get("ActiveState", ""),
             "log": log,
@@ -2493,6 +2600,7 @@ def update_rule_sets():
         }
     text = "\n".join(item for item in (result.get("stdout"), result.get("stderr")) if item)
     result["summary"] = rule_update_summary(text)
+    result["timerReschedule"] = reschedule_rule_update_timer_after_manual_success() if result["code"] == 0 else None
     write_json(
         RULE_UPDATE_LAST_PATH,
         {
@@ -2502,6 +2610,7 @@ def update_rule_sets():
             "code": result["code"],
             "log": text,
             "summary": result["summary"],
+            "timerReschedule": result["timerReschedule"],
         },
     )
     return result
