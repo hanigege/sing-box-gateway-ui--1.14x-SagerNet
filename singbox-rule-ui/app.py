@@ -122,6 +122,7 @@ LOCAL_DNS_CHOICES = {
 }
 DEFAULT_LOCAL_DNS_CHOICE = "dnspod"
 LOCAL_DNS_BY_SERVER = {item["server"]: key for key, item in LOCAL_DNS_CHOICES.items()}
+DEFAULT_INTERRUPT_EXIST_CONNECTIONS = False
 ENTRY_TYPES = ("domain", "domain_suffix", "domain_keyword", "domain_regex", "ip_cidr")
 LIST_ENTRY_TYPES = {
     "whitelist": ENTRY_TYPES,
@@ -723,13 +724,13 @@ def extract_initial_manager_data(config):
     groups = {
         "proxy": {
             "default": (proxy or {}).get("default", "Auto"),
-            "interrupt_exist_connections": (proxy or {}).get("interrupt_exist_connections", True),
+            "interrupt_exist_connections": (proxy or {}).get("interrupt_exist_connections", DEFAULT_INTERRUPT_EXIST_CONNECTIONS),
         },
         "auto": {
             "url": (auto or {}).get("url", "https://www.gstatic.com/generate_204"),
             "interval": (auto or {}).get("interval", "30s"),
             "tolerance": (auto or {}).get("tolerance", 50),
-            "interrupt_exist_connections": (auto or {}).get("interrupt_exist_connections", True),
+            "interrupt_exist_connections": (auto or {}).get("interrupt_exist_connections", DEFAULT_INTERRUPT_EXIST_CONNECTIONS),
         },
         "direct": direct or {"type": "direct", "tag": "direct"},
         "block": block or {"type": "block", "tag": "block"},
@@ -781,12 +782,14 @@ def load_groups():
     groups.setdefault("ddns", {})
     groups.setdefault("telegram", {})
     groups["proxy"].setdefault("default", "Auto")
-    groups["proxy"].setdefault("interrupt_exist_connections", True)
+    groups["proxy"].setdefault("interrupt_exist_connections", DEFAULT_INTERRUPT_EXIST_CONNECTIONS)
+    # 默认保护游戏/语音等长连接；用户可在 UI 高级开关里明确选择切换时中断旧连接。
     groups["proxy"]["interrupt_exist_connections"] = normalize_bool(groups["proxy"]["interrupt_exist_connections"])
     groups["auto"].setdefault("url", "https://www.gstatic.com/generate_204")
     groups["auto"].setdefault("interval", "30s")
     groups["auto"].setdefault("tolerance", 50)
-    groups["auto"].setdefault("interrupt_exist_connections", True)
+    groups["auto"].setdefault("interrupt_exist_connections", DEFAULT_INTERRUPT_EXIST_CONNECTIONS)
+    # urltest 默认只影响新连接；需要快速脱离坏节点时，用户可以手动开启中断旧连接。
     groups["auto"]["interrupt_exist_connections"] = normalize_bool(groups["auto"]["interrupt_exist_connections"])
     groups["fakeip"].setdefault("tag", "fakeip-dns")
     groups["fakeip"].setdefault("inet4_range", "28.0.0.0/8")
@@ -842,7 +845,9 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR, normalized_lists=N
         "tag": "Proxy",
         "outbounds": ["Auto", *tags],
         "default": proxy_default,
-        "interrupt_exist_connections": normalize_bool(groups.get("proxy", {}).get("interrupt_exist_connections", True)),
+        "interrupt_exist_connections": normalize_bool(
+            groups.get("proxy", {}).get("interrupt_exist_connections", DEFAULT_INTERRUPT_EXIST_CONNECTIONS)
+        ),
     }
     auto = {
         "type": "urltest",
@@ -851,8 +856,10 @@ def render_config(nodes=None, groups=None, rule_dir=RULE_DIR, normalized_lists=N
         "url": groups.get("auto", {}).get("url", "https://www.gstatic.com/generate_204"),
         "interval": groups.get("auto", {}).get("interval", "30s"),
         "tolerance": groups.get("auto", {}).get("tolerance", 50),
-        # Auto 切换节点时必须断开已有入站连接，否则旧连接会继续粘在失效节点上。
-        "interrupt_exist_connections": normalize_bool(groups.get("auto", {}).get("interrupt_exist_connections", True)),
+        # 默认只影响新连接；如果用户开启高级开关，则允许切换时主动清理旧连接。
+        "interrupt_exist_connections": normalize_bool(
+            groups.get("auto", {}).get("interrupt_exist_connections", DEFAULT_INTERRUPT_EXIST_CONNECTIONS)
+        ),
     }
     direct = groups.get("direct") or {"type": "direct", "tag": "direct"}
     block = groups.get("block") or {"type": "block", "tag": "block"}
@@ -2970,7 +2977,7 @@ def normalize_payload_groups(raw_groups, nodes=None):
             groups["auto"]["interval"] = str(auto.get("interval", groups["auto"]["interval"])).strip() or groups["auto"]["interval"]
             groups["auto"]["tolerance"] = normalize_non_negative_number(auto.get("tolerance", groups["auto"]["tolerance"]), 50)
             groups["auto"]["interrupt_exist_connections"] = normalize_bool(
-                auto.get("interrupt_exist_connections", groups["auto"].get("interrupt_exist_connections", True))
+                auto.get("interrupt_exist_connections", groups["auto"].get("interrupt_exist_connections", DEFAULT_INTERRUPT_EXIST_CONNECTIONS))
             )
         fakeip = raw_groups.get("fakeip")
         if isinstance(fakeip, dict):

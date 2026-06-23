@@ -17,6 +17,7 @@ GROUPS_PATH = MANAGER_DIR / "groups.json"
 INITIAL_NODES_FILE = os.environ.get("SING_BOX_INITIAL_NODES_FILE", "")
 DEFAULT_FAKE4 = "28.0.0.0/8"
 DEFAULT_FAKE6 = "2001:2::/64"
+DEFAULT_INTERRUPT_EXIST_CONNECTIONS = False
 YOUTUBE_QUIC_DOMAINS = [
     "googlevideo.com",
     "youtube.com",
@@ -338,8 +339,14 @@ def main():
     base = base_config(lan_ip, secret, fake4, fake6, ipv6_dns)
     default_node = nodes[0]["outbound"]["tag"]
     groups = {
-        "proxy": {"default": default_node, "interrupt_exist_connections": True},
-        "auto": {"url": "https://www.gstatic.com/generate_204", "interval": "30s", "tolerance": 50},
+        # 初装默认不打断既有连接，避免 urltest 切换节点时让游戏/语音长连接掉线重连。
+        "proxy": {"default": default_node, "interrupt_exist_connections": DEFAULT_INTERRUPT_EXIST_CONNECTIONS},
+        "auto": {
+            "url": "https://www.gstatic.com/generate_204",
+            "interval": "30s",
+            "tolerance": 50,
+            "interrupt_exist_connections": DEFAULT_INTERRUPT_EXIST_CONNECTIONS,
+        },
         "direct": {"type": "direct", "tag": "direct"},
         "block": {"type": "block", "tag": "block"},
         "fakeip": {"tag": "fakeip-dns", "inet4_range": fake4, "inet6_range": fake6, "block_quic": True},

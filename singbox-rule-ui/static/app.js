@@ -198,6 +198,7 @@ const translations = {
     autoUrl: "Test URL",
     autoInterval: "Interval",
     autoTolerance: "Tolerance",
+    interruptConnections: "Interrupt old connections",
     localDnsTitle: "China DNS",
     localDnsNote: "Choose one local-dns upstream. sing-box does not run these in parallel.",
     localDnsUpstream: "Upstream",
@@ -464,6 +465,7 @@ const translations = {
     autoUrl: "测速链接",
     autoInterval: "检测间隔",
     autoTolerance: "容差",
+    interruptConnections: "切换时中断旧连接",
     localDnsTitle: "国内 DNS",
     localDnsNote: "为国内直连域名选择一个 local-dns 上游；sing-box 不会并发查询这些 DNS。",
     localDnsUpstream: "上游",
@@ -1933,6 +1935,7 @@ function activeProxyLabel() {
 
 function renderNodes() {
   const nodes = state.nodes || [];
+  state.groups.proxy = state.groups.proxy || {};
   state.groups.auto = state.groups.auto || {};
   state.groups.dns = state.groups.dns || {};
   state.groups.fakeip = state.groups.fakeip || {};
@@ -1940,6 +1943,8 @@ function renderNodes() {
   if (document.activeElement !== $("autoUrl")) $("autoUrl").value = state.groups.auto.url || "https://www.gstatic.com/generate_204";
   if (document.activeElement !== $("autoInterval")) $("autoInterval").value = state.groups.auto.interval || "30s";
   if (document.activeElement !== $("autoTolerance")) $("autoTolerance").value = state.groups.auto.tolerance ?? 50;
+  $("interruptConnections").checked =
+    state.groups.proxy.interrupt_exist_connections === true || state.groups.auto.interrupt_exist_connections === true;
   renderLocalDnsSettings();
   if (document.activeElement !== $("fakeipV4")) $("fakeipV4").value = state.groups.fakeip.inet4_range || "28.0.0.0/8";
   if (document.activeElement !== $("fakeipV6")) $("fakeipV6").value = state.groups.fakeip.inet6_range || "2001:2::/64";
@@ -2557,6 +2562,7 @@ function syncNodeSettingsFromForm() {
   state.groups.auto.url = $("autoUrl").value.trim();
   state.groups.auto.interval = $("autoInterval").value.trim();
   state.groups.auto.tolerance = Number($("autoTolerance").value || 0);
+  state.groups.auto.interrupt_exist_connections = $("interruptConnections").checked;
   state.groups.dns = state.groups.dns || {};
   state.groups.dns.local = $("localDnsSelect").value || "dnspod";
   state.groups.fakeip = state.groups.fakeip || {};
@@ -2567,6 +2573,7 @@ function syncNodeSettingsFromForm() {
   state.groups.telegram = state.groups.telegram || {};
   state.groups.telegram.capture_ips = $("telegramCaptureIps").checked;
   state.groups.proxy = state.groups.proxy || {};
+  state.groups.proxy.interrupt_exist_connections = $("interruptConnections").checked;
   if (!$("proxyDefault").classList.contains("hidden") && $("proxyDefault").value) {
     state.groups.proxy.default = $("proxyDefault").value;
   }
@@ -2582,7 +2589,7 @@ function syncDraftSettings() {
   syncNodeSettingsFromForm();
 }
 
-["autoUrl", "autoInterval", "autoTolerance", "fakeipV4", "fakeipV6", "fakeipIpv6Enabled", "telegramCaptureIps"].forEach((id) => {
+["autoUrl", "autoInterval", "autoTolerance", "interruptConnections", "fakeipV4", "fakeipV6", "fakeipIpv6Enabled", "telegramCaptureIps"].forEach((id) => {
   $(id).addEventListener("input", syncNodeSettingsChanged);
   $(id).addEventListener("change", syncNodeSettingsChanged);
 });
